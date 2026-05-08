@@ -5,7 +5,9 @@ import type { ApplyContext } from "../mutations/applicators.js";
 import { readCronJobs, writeCronJobs } from "../storage/cron.js";
 import { globalLocks } from "../storage/locks.js";
 import type { CronJob } from "../domain.js";
+import type { CursorOptions } from "../cursor.js";
 import { matches, parse } from "./expr.js";
+import { runStandaloneCron } from "./standalone.js";
 
 /**
  * Single-process cron scheduler.
@@ -29,11 +31,21 @@ import { matches, parse } from "./expr.js";
 let started = false;
 let nextTimer: NodeJS.Timeout | null = null;
 let applyCtxRef: ApplyContext | null = null;
+let cursorOptsRef: CursorOptions | null = null;
 
-export function initCronScheduler(opts: { applyCtx: ApplyContext }): void {
+export function initCronScheduler(opts: {
+  applyCtx: ApplyContext;
+  /**
+   * Phase 23: needed by the `standalone` target dispatch path so we
+   * can spawn cursor-agent directly in the cron's owned workspace
+   * without going through the queue worker.
+   */
+  cursorOpts: CursorOptions;
+}): void {
   if (started) return;
   started = true;
   applyCtxRef = opts.applyCtx;
+  cursorOptsRef = opts.cursorOpts;
   scheduleNextTick();
 }
 
@@ -108,6 +120,47 @@ export async function executeCronJob(
     throw new Error("cron scheduler not initialized");
   }
   const target = job.target;
+
+  // Phase 23: standalone targets bypass the project queue entirely.
+  // The runner spawns cursor-agent directly in the cron's owned
+  // workspace and persists transcripts + run history under
+  // `store/_cron/<slug>/`. See `cron/standalone.ts` for the
+  // rationale; in short: tasks are intrinsically project-scoped, and
+  // a fully self-contained run history maps better to "what did this
+  // hourly job do at 3am?" than rummaging through the project queue.
+  if (target.kind === "standalone") {
+    if (!cursorOptsRef) {
+      throw new Error("cron scheduler not initialized (cursorOpts missing)");
+    }
+    let runResult;
+    try {
+      runResult = await runStandaloneCron(job, {
+        cursorOpts: cursorOptsRef,
+        workspaceRoot: applyCtxRef.workspaceRoot,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await updateJobAfterRun(job.id, {
+        last_run_at: opts.tickKey ?? Date.now(),
+        last_status: "error",
+        last_error: msg,
+      });
+      return { ok: false, cron_id: job.id, manual: opts.manual, error: msg };
+    }
+    await updateJobAfterRun(job.id, {
+      last_run_at: opts.tickKey ?? Date.now(),
+      last_status: runResult.run.status,
+      last_error: runResult.run.error,
+    });
+    return {
+      ok: runResult.ok,
+      cron_id: job.id,
+      manual: opts.manual,
+      mutation: runResult.ok ? { run_id: runResult.run.run_id } : undefined,
+      error: runResult.run.error,
+    };
+  }
+
   // Two-stage dispatch is only needed for the `task` target with
   // auto_start: we apply `add_task` first, then optionally
   // `start_task` against the returned task id. Stage 1 success is

@@ -15,7 +15,18 @@ import type { CouncilRunType } from "./council/types.js";
 import { initQueueWorker, getQueueWorker } from "./queue/worker.js";
 import { readQuestions } from "./queue/storage.js";
 import { listTaskRuns } from "./queue/storage.js";
-import { CodeBrowserError, listDir, readFile as readWorkspaceFile } from "./code/files.js";
+import {
+  CodeBrowserError,
+  listDir,
+  listDirAt,
+  readFile as readWorkspaceFile,
+  readFileAt,
+} from "./code/files.js";
+import { cronWorkspaceDir } from "./storage/paths.js";
+import {
+  readRuns as readCronRuns,
+  readTranscript as readCronTranscript,
+} from "./storage/cron_runs.js";
 import { initCronScheduler } from "./cron/scheduler.js";
 import { findToolByRef, readTools } from "./storage/tools.js";
 import { readCronJobs } from "./storage/cron.js";
@@ -62,7 +73,7 @@ const applyCtx = { workspaceRoot: WORKSPACE_ROOT };
 const store = new ChatStore(cursorOpts, applyCtx);
 initCouncilRunner({ cursor: cursorOpts });
 initQueueWorker({ cursor: cursorOpts, applyCtx });
-initCronScheduler({ applyCtx });
+initCronScheduler({ applyCtx, cursorOpts });
 
 const app = express();
 app.use(cors());
@@ -383,6 +394,91 @@ app.get("/v1/tools/:ref/runs", async (req, res) => {
 app.get("/cron", async (_req, res) => {
   const jobs = await readCronJobs();
   res.json({ jobs });
+});
+
+// ---- Standalone cron — run history + workspace file browser (Phase 23) ----
+//
+// Read-only views over the data the standalone runner persists:
+//   `store/_cron/<slug>/runs.jsonl`           (one CronRun per tick)
+//   `store/_cron/<slug>/transcripts/<run>.jsonl` (cursor-agent stream)
+//   `<WORKSPACE_ROOT>/_cron/<slug>/`          (cron-owned workspace)
+//
+// Project counterparts: `/projects/:slug/files` and `/projects/:slug/file`.
+// We resolve the cron job by id (durable handle) and use its slug to
+// locate disk paths.
+
+app.get("/v1/cron/:cron_id/runs", async (req, res) => {
+  const cronId = String(req.params.cron_id);
+  const jobs = await readCronJobs();
+  const job = jobs.find((j) => j.id === cronId);
+  if (!job) return res.status(404).json({ error: "unknown cron job" });
+  if (!job.slug || job.target.kind !== "standalone") {
+    return res.json({ runs: [] });
+  }
+  const runs = await readCronRuns(job.slug);
+  // Newest-first for the UI.
+  runs.sort((a, b) => b.started_at - a.started_at);
+  res.json({ runs });
+});
+
+app.get("/v1/cron/:cron_id/runs/:run_id/transcript", async (req, res) => {
+  const cronId = String(req.params.cron_id);
+  const runId = String(req.params.run_id);
+  const jobs = await readCronJobs();
+  const job = jobs.find((j) => j.id === cronId);
+  if (!job) return res.status(404).json({ error: "unknown cron job" });
+  if (!job.slug || job.target.kind !== "standalone") {
+    return res.status(400).json({ error: "cron job has no transcripts (not a standalone target)" });
+  }
+  const text = await readCronTranscript(job.slug, runId);
+  res.json({ run_id: runId, text });
+});
+
+app.get("/v1/cron/:cron_id/files", async (req, res) => {
+  const cronId = String(req.params.cron_id);
+  const rel = String(req.query.path ?? "");
+  const jobs = await readCronJobs();
+  const job = jobs.find((j) => j.id === cronId);
+  if (!job) return res.status(404).json({ error: "unknown cron job" });
+  if (!job.slug || job.target.kind !== "standalone") {
+    return res.status(400).json({
+      error: "cron job has no workspace (not a standalone target)",
+    });
+  }
+  try {
+    const out = await listDirAt(cronWorkspaceDir(WORKSPACE_ROOT, job.slug), rel);
+    res.json(out);
+  } catch (err) {
+    if (err instanceof CodeBrowserError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/v1/cron/:cron_id/file", async (req, res) => {
+  const cronId = String(req.params.cron_id);
+  const rel = String(req.query.path ?? "");
+  if (!rel) return res.status(400).json({ error: "path query param is required" });
+  const jobs = await readCronJobs();
+  const job = jobs.find((j) => j.id === cronId);
+  if (!job) return res.status(404).json({ error: "unknown cron job" });
+  if (!job.slug || job.target.kind !== "standalone") {
+    return res.status(400).json({
+      error: "cron job has no workspace (not a standalone target)",
+    });
+  }
+  try {
+    const out = await readFileAt(cronWorkspaceDir(WORKSPACE_ROOT, job.slug), rel);
+    res.json(out);
+  } catch (err) {
+    if (err instanceof CodeBrowserError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // ---- Tool Proposals (Phase 13) ----

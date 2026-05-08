@@ -364,6 +364,16 @@ export interface Rule {
  */
 export interface CronJob {
   id: string;
+  /**
+   * Stable filesystem-safe slug derived from `name` on create, deduped
+   * against existing cron jobs. Currently used by the `standalone`
+   * target to scope the cron's owned workspace + run history (lives at
+   * `WORKSPACE_ROOT/_cron/<slug>/` and `store/_cron/<slug>/`). Older
+   * cron jobs (created before this field landed) read back as
+   * `undefined`; those rows are non-standalone targets where the slug
+   * isn't needed.
+   */
+  slug?: string;
   name: string;
   description?: string;
   schedule: string;
@@ -388,6 +398,27 @@ export interface CronJob {
         priority?: number;
         feature_id?: string;
         auto_start?: boolean;
+      }
+    /**
+     * Standalone cron — no project required. Each tick spawns
+     * cursor-agent directly in the cron's owned workspace
+     * (`WORKSPACE_ROOT/_cron/<slug>/`) and captures the run into
+     * `store/_cron/<slug>/runs.jsonl` + `transcripts/<run_id>.jsonl`.
+     * The prompt comes from either an inline `prompt` (auditable,
+     * self-contained) or a referenced Tool (reusable across cron jobs).
+     * Exactly one of the two must be set; applicator validates this.
+     */
+    | {
+        kind: "standalone";
+        /** Reference an existing Tool. Mutually exclusive with `prompt`. */
+        tool_id?: string;
+        /**
+         * Inline prompt — used directly as the cursor-agent input.
+         * Mutually exclusive with `tool_id`.
+         */
+        prompt?: string;
+        /** Args supplied to the Tool's params (ignored when `prompt` is set). */
+        args?: Record<string, string>;
       };
   enabled: boolean;
   /** Last successful tick (set when the target was dispatched). */
@@ -397,4 +428,26 @@ export interface CronJob {
   last_status?: "ok" | "error";
   created_at: number;
   updated_at: number;
+}
+
+// ---- Cron — standalone runs (Phase 23) ----
+
+/**
+ * One row per tick of a standalone cron job. Persisted to
+ * `store/_cron/<slug>/runs.jsonl` (append-only, rotated to last 1000).
+ * Pairs with `transcripts/<run_id>.jsonl` which holds the line-by-line
+ * cursor-agent stdout for that run.
+ */
+export interface CronRun {
+  run_id: string;
+  cron_id: string;
+  cron_slug: string;
+  started_at: number;
+  ended_at: number;
+  status: "ok" | "error";
+  duration_ms: number;
+  /** Short error tail when status === "error". */
+  error?: string;
+  /** Bytes captured into the transcript (handy for the runs list UI). */
+  transcript_bytes: number;
 }

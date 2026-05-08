@@ -99,6 +99,44 @@ export function cronFile(): string {
   return path.join(root, "cron.json");
 }
 
+// ---- Cron — standalone target storage (Phase 23) ----
+//
+// Standalone cron jobs own a workspace (where cursor-agent operates,
+// host-side under WORKSPACE_ROOT) and a state directory (where icarus
+// keeps the per-run history + transcripts). Two roots so the user can
+// separately back up "what the agent produced" vs "icarus's bookkeeping
+// about how it got there".
+
+export function cronStateRoot(): string {
+  return path.join(root, "_cron");
+}
+
+export function cronStateDir(cronSlug: string): string {
+  return path.join(cronStateRoot(), cronSlug);
+}
+
+export function cronRunsFile(cronSlug: string): string {
+  return path.join(cronStateDir(cronSlug), "runs.jsonl");
+}
+
+export function cronTranscriptsDir(cronSlug: string): string {
+  return path.join(cronStateDir(cronSlug), "transcripts");
+}
+
+export function cronTranscriptFile(cronSlug: string, runId: string): string {
+  return path.join(cronTranscriptsDir(cronSlug), `${runId}.jsonl`);
+}
+
+/**
+ * Where the cron's cursor-agent invocation cd's into. Lives under
+ * `<WORKSPACE_ROOT>/_cron/<slug>/`. Caller passes `workspaceRoot`
+ * because that value comes from the runtime config (env var) rather
+ * than the data root used by everything else above.
+ */
+export function cronWorkspaceDir(workspaceRoot: string, cronSlug: string): string {
+  return path.join(workspaceRoot, "_cron", cronSlug);
+}
+
 // ---- Tool Proposals (Phase 13) ----
 
 export function toolProposalsFile(): string {

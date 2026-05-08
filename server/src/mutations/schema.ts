@@ -592,6 +592,25 @@ const CronTargetPayload = z.discriminatedUnion("kind", [
     feature_id: z.string().min(1).optional(),
     auto_start: z.boolean().optional(),
   }),
+  // Standalone (Phase 23): no project, cron owns its own workspace.
+  // Either reference an existing Tool or supply an inline prompt;
+  // exactly one must be set. Both/neither are rejected at parse time.
+  z
+    .object({
+      kind: z.literal("standalone"),
+      tool_id: z.string().min(1).optional(),
+      tool_name: z.string().min(1).optional(),
+      prompt: z.string().min(1).max(20_000).optional(),
+      args: z.record(z.string(), z.string()).optional(),
+    })
+    .refine(
+      (p) => {
+        const usingTool = !!(p.tool_id || p.tool_name);
+        const usingPrompt = !!p.prompt;
+        return usingTool !== usingPrompt; // exactly one
+      },
+      { message: "supply exactly one of {tool_id|tool_name, prompt}" },
+    ),
 ]);
 
 export const CreateCronPayload = z.object({

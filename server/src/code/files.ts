@@ -90,8 +90,19 @@ function resolveSafe(workspace: string, rel: string): string {
   return abs;
 }
 
-export async function listDir(slug: string, rel: string): Promise<ListingResult> {
-  const workspace = await workspaceFor(slug);
+/**
+ * Pure variant of {@link listDir} that takes an absolute workspace
+ * path directly. Used by Phase 23's standalone-cron file API and any
+ * future caller that browses a directory not anchored to a project
+ * (e.g. attached external workspaces, agent scratch dirs). Same
+ * safety rules — symlink-resolved root, escape check, hidden / heavy
+ * filters — minus the fleet lookup.
+ */
+export async function listDirAt(
+  workspaceRaw: string,
+  rel: string,
+): Promise<ListingResult> {
+  const workspace = await fs.realpath(workspaceRaw).catch(() => workspaceRaw);
   const abs = resolveSafe(workspace, rel);
   let stat;
   try {
@@ -138,8 +149,12 @@ export async function listDir(slug: string, rel: string): Promise<ListingResult>
   return { rel_path: path.relative(workspace, abs), entries };
 }
 
-export async function readFile(slug: string, rel: string): Promise<ReadResult> {
-  const workspace = await workspaceFor(slug);
+/** See {@link listDirAt}. */
+export async function readFileAt(
+  workspaceRaw: string,
+  rel: string,
+): Promise<ReadResult> {
+  const workspace = await fs.realpath(workspaceRaw).catch(() => workspaceRaw);
   const abs = resolveSafe(workspace, rel);
   let stat;
   try {
@@ -166,6 +181,16 @@ export async function readFile(slug: string, rel: string): Promise<ReadResult> {
     language: binary ? undefined : languageFor(rel),
     text: binary ? undefined : head.toString("utf8"),
   };
+}
+
+export async function listDir(slug: string, rel: string): Promise<ListingResult> {
+  const workspace = await workspaceFor(slug);
+  return await listDirAt(workspace, rel);
+}
+
+export async function readFile(slug: string, rel: string): Promise<ReadResult> {
+  const workspace = await workspaceFor(slug);
+  return await readFileAt(workspace, rel);
 }
 
 /**

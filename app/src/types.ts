@@ -449,10 +449,24 @@ export type CronTarget =
       priority?: number;
       feature_id?: string;
       auto_start?: boolean;
+    }
+  /**
+   * Phase 23: standalone cron — owns a private workspace at
+   * `<WORKSPACE_ROOT>/_cron/<slug>/`. Either references a Tool or
+   * carries an inline prompt (mutually exclusive). Run history +
+   * transcripts persist to `store/_cron/<slug>/`.
+   */
+  | {
+      kind: "standalone";
+      tool_id?: string;
+      prompt?: string;
+      args?: Record<string, string>;
     };
 
 export interface CronJob {
   id: string;
+  /** Stable filesystem slug — set on create, used by standalone runs. */
+  slug?: string;
   name: string;
   description?: string;
   schedule: string;
@@ -463,6 +477,23 @@ export interface CronJob {
   last_status?: "ok" | "error";
   created_at: number;
   updated_at: number;
+}
+
+/**
+ * Phase 23 — one row per standalone-cron tick. Persisted server-side
+ * to `store/_cron/<slug>/runs.jsonl`. Mirrors `CronRun` in
+ * server/src/domain.ts. Surfaced to the UI through `getCronRuns`.
+ */
+export interface CronRun {
+  run_id: string;
+  cron_id: string;
+  cron_slug: string;
+  started_at: number;
+  ended_at: number;
+  status: "ok" | "error";
+  duration_ms: number;
+  error?: string;
+  transcript_bytes: number;
 }
 
 // ---- Rules (Phase 12) ----

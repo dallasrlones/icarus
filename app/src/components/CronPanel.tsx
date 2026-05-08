@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -8,7 +9,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { CronJob, ProjectListing, Tool } from "../types";
+import type { CronJob, CronRun, ProjectListing, Tool } from "../types";
+import {
+  listCronFiles,
+  listCronRuns,
+  readCronFile,
+  readCronTranscript,
+  type CodeFile,
+  type CodeFileEntry,
+  type CodeListing,
+} from "../api";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -33,6 +43,11 @@ interface Props {
 export function CronPanel({ jobs, tools, projects, onApply }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<CronJob | null>(null);
+  // Phase 23: per-cron file/run viewers. We track the cron job id so
+  // the modal stays open across cron list refreshes (the row mutates
+  // last_run_at every minute when a tick fires).
+  const [filesOpen, setFilesOpen] = useState<CronJob | null>(null);
+  const [runsOpen, setRunsOpen] = useState<CronJob | null>(null);
 
   const sorted = useMemo(
     () => [...jobs].sort((a, b) => b.updated_at - a.updated_at),
@@ -46,8 +61,9 @@ export function CronPanel({ jobs, tools, projects, onApply }: Props) {
           <Text style={styles.headerLabel}>// cron</Text>
           <Text style={styles.headerTitle}>Scheduled jobs</Text>
           <Text style={styles.headerSub}>
-            Schedules use standard 5-field crontab syntax. Targets are either
-            a tool (parametrized cursor-agent run) or the queue worker.
+            Schedules use standard 5-field crontab syntax. Targets: standalone (own
+            workspace under _cron, no project), tool or task (need a project), or
+            the queue worker.
           </Text>
         </View>
         <Pressable
@@ -63,8 +79,8 @@ export function CronPanel({ jobs, tools, projects, onApply }: Props) {
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>No scheduled jobs.</Text>
           <Text style={styles.emptySub}>
-            Create one to automate recurring work — e.g. run a cleanup tool
-            every night, or kick the queue every 15 minutes.
+            Standalone jobs get their own folder and FILES / RUNS in the row.
+            Or schedule a tool, task, or the queue worker when you use projects.
           </Text>
         </View>
       ) : (
@@ -77,6 +93,8 @@ export function CronPanel({ jobs, tools, projects, onApply }: Props) {
               projects={projects}
               onEdit={() => setEditing(job)}
               onApply={onApply}
+              onOpenFiles={() => setFilesOpen(job)}
+              onOpenRuns={() => setRunsOpen(job)}
             />
           ))}
         </ScrollView>
@@ -90,7 +108,10 @@ export function CronPanel({ jobs, tools, projects, onApply }: Props) {
         projects={projects}
         onCancel={() => setCreateOpen(false)}
         onSubmit={async (draft) => {
-          const ok = await onApply({ kind: "create_cron", payload: draft });
+          const ok = await onApply({
+            kind: "create_cron",
+            payload: draftToWire(draft),
+          });
           if (ok) setCreateOpen(false);
         }}
       />
@@ -104,12 +125,22 @@ export function CronPanel({ jobs, tools, projects, onApply }: Props) {
         onCancel={() => setEditing(null)}
         onSubmit={async (draft) => {
           if (!editing) return;
+          const wire = draftToWire(draft) as Record<string, unknown>;
           const ok = await onApply({
             kind: "update_cron",
-            payload: { ...draft, cron_id: editing.id },
+            payload: { ...wire, cron_id: editing.id },
           });
           if (ok) setEditing(null);
         }}
+      />
+
+      <CronFilesModal
+        cron={filesOpen}
+        onClose={() => setFilesOpen(null)}
+      />
+      <CronRunsModal
+        cron={runsOpen}
+        onClose={() => setRunsOpen(null)}
       />
     </View>
   );
@@ -123,17 +154,22 @@ function CronRow({
   projects,
   onEdit,
   onApply,
+  onOpenFiles,
+  onOpenRuns,
 }: {
   job: CronJob;
   tools: Tool[];
   projects: ProjectListing[];
   onEdit: () => void;
   onApply: (envelope: unknown) => Promise<boolean>;
+  onOpenFiles: () => void;
+  onOpenRuns: () => void;
 }) {
   const targetSummary = describeTarget(job, tools, projects);
   const stateLabel = job.enabled ? "ON" : "OFF";
   const lastRun = job.last_run_at ? new Date(job.last_run_at).toLocaleString() : "—";
   const lastStatus = job.last_status ?? "—";
+  const isStandalone = job.target.kind === "standalone";
   return (
     <View style={styles.row}>
       <View style={styles.rowMain}>
@@ -184,6 +220,24 @@ function CronRow({
         >
           <Text style={[styles.actionBtnText, styles.actionBtnTextRun]}>RUN NOW</Text>
         </Pressable>
+        {isStandalone ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onOpenFiles}
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+            >
+              <Text style={styles.actionBtnText}>FILES</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onOpenRuns}
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+            >
+              <Text style={styles.actionBtnText}>RUNS</Text>
+            </Pressable>
+          </>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           onPress={() =>
@@ -234,6 +288,13 @@ function describeTarget(job: CronJob, tools: Tool[], projects: ProjectListing[])
     const startHint = target.auto_start ? " · auto-start" : "";
     return `task · "${target.title}" → ${project?.name ?? target.project_slug}${startHint}`;
   }
+  if (target.kind === "standalone") {
+    if (target.tool_id) {
+      const tool = tools.find((t) => t.id === target.tool_id);
+      return `standalone · ${tool?.name ?? target.tool_id} (own folder)`;
+    }
+    return "standalone · inline prompt (own folder)";
+  }
   return target.project_slug
     ? `queue · ${projects.find((p) => p.slug === target.project_slug)?.name ?? target.project_slug}`
     : "queue · fleet-wide";
@@ -257,6 +318,19 @@ interface DraftCron {
         priority?: number;
         feature_id?: string;
         auto_start?: boolean;
+      }
+    /**
+     * Phase 23: standalone cron — owns its own workspace, no project.
+     * `mode` is a UI-only discriminator that decides which sub-form
+     * is visible (Tool reference vs inline prompt). Server resolves
+     * exactly one of `tool_id` / `prompt`.
+     */
+    | {
+        kind: "standalone";
+        mode: "tool" | "prompt";
+        tool_id?: string;
+        prompt?: string;
+        args?: Record<string, string>;
       };
 }
 
@@ -295,6 +369,24 @@ function CronEditorModal({
   const target = draft.target;
   const tool =
     target.kind === "tool" ? tools.find((t) => t.id === target.tool_id) ?? null : null;
+
+  // A cron job is project-less by default (queue / fleet-wide). The
+  // `tool` and `task` target kinds genuinely need a project to run
+  // against — without an active project there's no workspace to fire
+  // the run in. Rather than letting the user pick those chips and
+  // silently submit a payload that fails Zod's `min(1)` server-side,
+  // we hide them when the fleet is empty so the form is always
+  // submittable as-is.
+  const activeProjects = useMemo(
+    () => projects.filter((p) => p.status !== "archived"),
+    [projects],
+  );
+  const hasProjects = activeProjects.length > 0;
+
+  // Form-level validity. We disable submit when the draft is missing
+  // required bits — same checks the server runs, just surfaced eagerly
+  // so the button doesn't silently no-op against a 400.
+  const draftValid = isDraftValid(draft);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -354,27 +446,33 @@ function CronEditorModal({
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>// target</Text>
               <View style={styles.typeRow}>
-                <Pressable
-                  onPress={() =>
-                    setDraft((d) => ({
-                      ...d,
-                      target: { kind: "tool", tool_id: tools[0]?.id ?? "", project_slug: projects[0]?.slug ?? "" },
-                    }))
-                  }
-                  style={[
-                    styles.typeChip,
-                    draft.target.kind === "tool" && styles.typeChipActive,
-                  ]}
-                >
-                  <Text
+                {hasProjects ? (
+                  <Pressable
+                    onPress={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        target: {
+                          kind: "tool",
+                          tool_id: tools[0]?.id ?? "",
+                          project_slug: activeProjects[0]?.slug ?? "",
+                        },
+                      }))
+                    }
                     style={[
-                      styles.typeChipText,
-                      draft.target.kind === "tool" && styles.typeChipTextActive,
+                      styles.typeChip,
+                      draft.target.kind === "tool" && styles.typeChipActive,
                     ]}
                   >
-                    tool
-                  </Text>
-                </Pressable>
+                    <Text
+                      style={[
+                        styles.typeChipText,
+                        draft.target.kind === "tool" && styles.typeChipTextActive,
+                      ]}
+                    >
+                      tool
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={() => setDraft((d) => ({ ...d, target: { kind: "queue" } }))}
                   style={[
@@ -396,29 +494,63 @@ function CronEditorModal({
                     setDraft((d) => ({
                       ...d,
                       target: {
-                        kind: "task",
-                        project_slug:
-                          projects.find((p) => p.status !== "archived")?.slug ?? "",
-                        title: "",
-                        auto_start: false,
+                        kind: "standalone",
+                        mode: tools.length > 0 ? "tool" : "prompt",
+                        tool_id: tools[0]?.id,
+                        prompt: tools.length > 0 ? undefined : "",
+                        args: {},
                       },
                     }))
                   }
                   style={[
                     styles.typeChip,
-                    draft.target.kind === "task" && styles.typeChipActive,
+                    draft.target.kind === "standalone" && styles.typeChipActive,
                   ]}
                 >
                   <Text
                     style={[
                       styles.typeChipText,
-                      draft.target.kind === "task" && styles.typeChipTextActive,
+                      draft.target.kind === "standalone" && styles.typeChipTextActive,
                     ]}
                   >
-                    task
+                    standalone
                   </Text>
                 </Pressable>
+                {hasProjects ? (
+                  <Pressable
+                    onPress={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        target: {
+                          kind: "task",
+                          project_slug: activeProjects[0]?.slug ?? "",
+                          title: "",
+                          auto_start: false,
+                        },
+                      }))
+                    }
+                    style={[
+                      styles.typeChip,
+                      draft.target.kind === "task" && styles.typeChipActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.typeChipText,
+                        draft.target.kind === "task" && styles.typeChipTextActive,
+                      ]}
+                    >
+                      task
+                    </Text>
+                  </Pressable>
+                ) : null}
               </View>
+              {!hasProjects ? (
+                <Text style={styles.helperSmall}>
+                  No projects yet — only fleet-wide queue targets are available.
+                  Create a project first to schedule a tool or task.
+                </Text>
+              ) : null}
 
               {draft.target.kind === "task" ? (
                 <View style={{ gap: space.sm }}>
@@ -633,6 +765,18 @@ function CronEditorModal({
                     </View>
                   ) : null}
                 </>
+              ) : draft.target.kind === "standalone" ? (
+                <StandaloneTargetForm
+                  target={draft.target}
+                  tools={tools}
+                  setTarget={(updater) =>
+                    setDraft((d) =>
+                      d.target.kind === "standalone"
+                        ? { ...d, target: updater(d.target) }
+                        : d,
+                    )
+                  }
+                />
               ) : (
                 <View>
                   <Text style={styles.fieldLabel}>PROJECT (optional — leave empty for fleet-wide)</Text>
@@ -704,10 +848,22 @@ function CronEditorModal({
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              disabled={!draftValid}
               onPress={() => void onSubmit(draft)}
-              style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                pressed && styles.primaryBtnPressed,
+                !draftValid && styles.primaryBtnDisabled,
+              ]}
             >
-              <Text style={styles.primaryBtnText}>{initial ? "SAVE" : "CREATE"}</Text>
+              <Text
+                style={[
+                  styles.primaryBtnText,
+                  !draftValid && styles.primaryBtnTextDisabled,
+                ]}
+              >
+                {initial ? "SAVE" : "CREATE"}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -726,7 +882,50 @@ function blankDraft(): DraftCron {
   };
 }
 
+/**
+ * Mirrors the server's Zod constraints for `create_cron` so the
+ * Save / Create button can disable itself eagerly instead of POSTing
+ * a payload that 400s. Keep this in sync with `CronTargetPayload` in
+ * server/src/mutations/schema.ts.
+ */
+function isDraftValid(d: DraftCron): boolean {
+  if (!d.name.trim()) return false;
+  if (!d.schedule.trim()) return false;
+  const t = d.target;
+  if (t.kind === "tool") {
+    return !!t.tool_id && !!t.project_slug;
+  }
+  if (t.kind === "task") {
+    return !!t.project_slug && !!t.title.trim();
+  }
+  if (t.kind === "standalone") {
+    if (t.mode === "tool") return !!t.tool_id;
+    return !!(t.prompt && t.prompt.trim().length > 0);
+  }
+  // queue — project_slug is optional (fleet-wide is fine).
+  return true;
+}
+
 function cronToDraft(j: CronJob): DraftCron {
+  // Standalone target on the wire has either tool_id or prompt; the
+  // editor's `mode` discriminator is UI-only and gets recovered from
+  // whichever field is present. Other target kinds round-trip as-is.
+  if (j.target.kind === "standalone") {
+    const usingTool = !!j.target.tool_id;
+    return {
+      name: j.name,
+      description: j.description ?? "",
+      schedule: j.schedule,
+      enabled: j.enabled,
+      target: {
+        kind: "standalone",
+        mode: usingTool ? "tool" : "prompt",
+        tool_id: j.target.tool_id,
+        prompt: j.target.prompt,
+        args: j.target.args,
+      },
+    };
+  }
   return {
     name: j.name,
     description: j.description ?? "",
@@ -734,6 +933,500 @@ function cronToDraft(j: CronJob): DraftCron {
     enabled: j.enabled,
     target: j.target,
   };
+}
+
+/**
+ * Strip the editor-only `mode` field before submitting, and drop
+ * whichever of {tool_id, prompt} doesn't apply for the chosen mode.
+ * The server's Zod schema rejects payloads where both are set.
+ */
+function draftToWire(d: DraftCron): unknown {
+  if (d.target.kind !== "standalone") {
+    return { name: d.name, description: d.description, schedule: d.schedule, enabled: d.enabled, target: d.target };
+  }
+  const t = d.target;
+  const target =
+    t.mode === "tool"
+      ? { kind: "standalone" as const, tool_id: t.tool_id, args: t.args }
+      : { kind: "standalone" as const, prompt: t.prompt };
+  return { name: d.name, description: d.description, schedule: d.schedule, enabled: d.enabled, target };
+}
+
+// ---- Standalone target form (Phase 23) ----
+
+/**
+ * Form section for the standalone cron target. Splits into two modes
+ * — "use a Tool" or "inline prompt" — chosen by a chip toggle. Mode
+ * is UI-only; on submit `draftToWire` collapses to the right server
+ * shape.
+ */
+function StandaloneTargetForm({
+  target,
+  tools,
+  setTarget,
+}: {
+  target: Extract<DraftCron["target"], { kind: "standalone" }>;
+  tools: Tool[];
+  setTarget: (
+    updater: (
+      t: Extract<DraftCron["target"], { kind: "standalone" }>,
+    ) => Extract<DraftCron["target"], { kind: "standalone" }>,
+  ) => void;
+}) {
+  const tool =
+    target.mode === "tool" && target.tool_id
+      ? tools.find((t) => t.id === target.tool_id) ?? null
+      : null;
+
+  return (
+    <View style={{ gap: space.sm }}>
+      <Text style={styles.helperSmall}>
+        Standalone cron — runs in its own folder under
+        {" "}<Text style={{ fontFamily: fonts.mono }}>_cron/&lt;slug&gt;/</Text>.
+        No project required. Use FILES on the row to browse what the
+        agent has produced.
+      </Text>
+
+      <Text style={styles.fieldLabel}>PROMPT SOURCE</Text>
+      <View style={styles.typeRow}>
+        <Pressable
+          onPress={() =>
+            setTarget((t) => ({
+              ...t,
+              mode: "tool",
+              prompt: undefined,
+              tool_id: t.tool_id ?? tools[0]?.id,
+            }))
+          }
+          style={[styles.typeChip, target.mode === "tool" && styles.typeChipActive]}
+          disabled={tools.length === 0}
+        >
+          <Text
+            style={[
+              styles.typeChipText,
+              target.mode === "tool" && styles.typeChipTextActive,
+              tools.length === 0 && { opacity: 0.4 },
+            ]}
+          >
+            use a Tool
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() =>
+            setTarget((t) => ({
+              ...t,
+              mode: "prompt",
+              tool_id: undefined,
+              args: undefined,
+              prompt: t.prompt ?? "",
+            }))
+          }
+          style={[styles.typeChip, target.mode === "prompt" && styles.typeChipActive]}
+        >
+          <Text
+            style={[
+              styles.typeChipText,
+              target.mode === "prompt" && styles.typeChipTextActive,
+            ]}
+          >
+            inline prompt
+          </Text>
+        </Pressable>
+      </View>
+      {tools.length === 0 && target.mode === "tool" ? (
+        <Text style={styles.helperSmall}>
+          No tools yet — define one on the Tools tab to reuse a prompt
+          across multiple cron jobs, or switch to inline prompt.
+        </Text>
+      ) : null}
+
+      {target.mode === "tool" ? (
+        <>
+          <Text style={styles.fieldLabel}>TOOL</Text>
+          <View style={styles.typeRow}>
+            {tools.map((t) => (
+              <Pressable
+                key={t.id}
+                onPress={() =>
+                  setTarget((s) => ({ ...s, tool_id: t.id, args: {} }))
+                }
+                style={[
+                  styles.typeChip,
+                  target.tool_id === t.id && styles.typeChipActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.typeChipText,
+                    target.tool_id === t.id && styles.typeChipTextActive,
+                  ]}
+                >
+                  {t.name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {tool && tool.params.length > 0 ? (
+            <View style={{ gap: space.sm, marginTop: space.sm }}>
+              <Text style={styles.fieldLabel}>ARGS</Text>
+              {tool.params.map((p) => (
+                <Field
+                  key={p.name}
+                  label={`${(p.label ?? p.name).toUpperCase()}${p.required ? " *" : ""}`}
+                  value={target.args?.[p.name] ?? ""}
+                  onChange={(v) =>
+                    setTarget((s) => ({
+                      ...s,
+                      args: { ...(s.args ?? {}), [p.name]: v },
+                    }))
+                  }
+                  multiline={p.type === "text"}
+                  minHeight={p.type === "text" ? 60 : undefined}
+                  hint={p.description}
+                  compact
+                />
+              ))}
+            </View>
+          ) : null}
+        </>
+      ) : (
+        <Field
+          label="INLINE PROMPT"
+          value={target.prompt ?? ""}
+          onChange={(v) => setTarget((s) => ({ ...s, prompt: v }))}
+          multiline
+          minHeight={140}
+          hint="Sent directly to cursor-agent on every tick. The agent's cwd is the cron's owned workspace."
+        />
+      )}
+    </View>
+  );
+}
+
+// ---- Standalone-cron files modal (Phase 23) ----
+
+/**
+ * Read-only file browser scoped to a single standalone cron job's
+ * workspace. Mirrors the project Code tab's structure (a thin
+ * directory tree on the left, a file viewer on the right) but stays
+ * inline as a modal because the cron tab is a list-of-jobs and we
+ * don't want to navigate the user away from it.
+ */
+function CronFilesModal({
+  cron,
+  onClose,
+}: {
+  cron: CronJob | null;
+  onClose: () => void;
+}) {
+  const visible = !!cron && cron.target.kind === "standalone";
+  const [path, setPath] = useState<string>("");
+  const [listing, setListing] = useState<CodeListing | null>(null);
+  const [file, setFile] = useState<CodeFile | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible || !cron) {
+      setListing(null);
+      setFile(null);
+      setPath("");
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const out = await listCronFiles(cron.id, "");
+        if (cancelled) return;
+        setListing(out);
+        setFile(null);
+        setPath("");
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, cron]);
+
+  const openEntry = async (entry: CodeFileEntry) => {
+    if (!cron) return;
+    setLoading(true);
+    setError(null);
+    try {
+      if (entry.kind === "dir") {
+        const out = await listCronFiles(cron.id, entry.rel_path);
+        setListing(out);
+        setFile(null);
+        setPath(entry.rel_path);
+      } else {
+        const out = await readCronFile(cron.id, entry.rel_path);
+        setFile(out);
+        setPath(entry.rel_path);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openParent = async () => {
+    if (!cron || !path) return;
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    setLoading(true);
+    setError(null);
+    try {
+      const out = await listCronFiles(cron.id, parent);
+      setListing(out);
+      setFile(null);
+      setPath(parent);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalCard, styles.modalCardWide]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              FILES: {cron?.name?.toUpperCase() ?? ""}
+            </Text>
+            <Pressable onPress={onClose} hitSlop={10}>
+              <Text style={styles.modalClose}>×</Text>
+            </Pressable>
+          </View>
+          <View style={styles.modalSubHeader}>
+            <Text style={styles.modalSubText}>
+              {cron?.slug ? `_cron/${cron.slug}/${path}` : ""}
+            </Text>
+            {path ? (
+              <Pressable onPress={openParent}>
+                <Text style={styles.linkText}>↑ up one</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorBoxText}>{error}</Text>
+            </View>
+          ) : null}
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            {loading ? (
+              <ActivityIndicator color={palette.cyan} />
+            ) : file ? (
+              <View>
+                <View style={styles.fileMetaRow}>
+                  <Text style={styles.fileMetaText}>
+                    {file.size.toLocaleString()} bytes
+                    {file.truncated ? " · truncated" : ""}
+                    {file.binary ? " · binary" : ""}
+                    {file.language ? ` · ${file.language}` : ""}
+                  </Text>
+                </View>
+                {file.binary ? (
+                  <Text style={styles.helperSmall}>
+                    Binary file — preview unavailable.
+                  </Text>
+                ) : (
+                  <Text style={styles.fileBody}>{file.text ?? ""}</Text>
+                )}
+              </View>
+            ) : listing ? (
+              listing.entries.length === 0 ? (
+                <Text style={styles.helperSmall}>
+                  Empty — the cron hasn't written anything here yet.
+                  Run it once with RUN NOW to populate the workspace.
+                </Text>
+              ) : (
+                <View style={{ gap: 4 }}>
+                  {listing.entries.map((entry) => (
+                    <Pressable
+                      key={entry.rel_path}
+                      onPress={() => void openEntry(entry)}
+                      style={({ pressed }) => [
+                        styles.fileEntry,
+                        pressed && styles.fileEntryPressed,
+                      ]}
+                    >
+                      <Text style={styles.fileEntryIcon}>
+                        {entry.kind === "dir" ? "▸" : "·"}
+                      </Text>
+                      <Text style={styles.fileEntryName}>{entry.name}</Text>
+                      {entry.kind === "file" && typeof entry.size === "number" ? (
+                        <Text style={styles.fileEntryMeta}>
+                          {entry.size.toLocaleString()}b
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  ))}
+                </View>
+              )
+            ) : null}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ---- Standalone-cron runs modal (Phase 23) ----
+
+/**
+ * Run-history viewer. Top section: list of recent ticks (most recent
+ * first) with status / duration / error tail. Click a row to expand
+ * its transcript inline.
+ */
+function CronRunsModal({
+  cron,
+  onClose,
+}: {
+  cron: CronJob | null;
+  onClose: () => void;
+}) {
+  const visible = !!cron && cron.target.kind === "standalone";
+  const [runs, setRuns] = useState<CronRun[] | null>(null);
+  const [selected, setSelected] = useState<CronRun | null>(null);
+  const [transcript, setTranscript] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible || !cron) {
+      setRuns(null);
+      setSelected(null);
+      setTranscript("");
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const list = await listCronRuns(cron.id);
+        if (cancelled) return;
+        setRuns(list);
+        setSelected(null);
+        setTranscript("");
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, cron]);
+
+  const select = async (run: CronRun) => {
+    if (!cron) return;
+    setSelected(run);
+    setLoading(true);
+    setError(null);
+    try {
+      const text = await readCronTranscript(cron.id, run.run_id);
+      setTranscript(text);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setTranscript("");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalCard, styles.modalCardWide]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              RUNS: {cron?.name?.toUpperCase() ?? ""}
+            </Text>
+            <Pressable onPress={onClose} hitSlop={10}>
+              <Text style={styles.modalClose}>×</Text>
+            </Pressable>
+          </View>
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorBoxText}>{error}</Text>
+            </View>
+          ) : null}
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            {!runs ? (
+              <ActivityIndicator color={palette.cyan} />
+            ) : runs.length === 0 ? (
+              <Text style={styles.helperSmall}>
+                No runs yet. RUN NOW to fire one immediately, or wait
+                for the schedule.
+              </Text>
+            ) : (
+              <View style={{ gap: 4 }}>
+                {runs.map((r) => {
+                  const active = selected?.run_id === r.run_id;
+                  return (
+                    <Pressable
+                      key={r.run_id}
+                      onPress={() => void select(r)}
+                      style={({ pressed }) => [
+                        styles.runRow,
+                        active && styles.runRowActive,
+                        pressed && !active && styles.runRowPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.runRowStatus,
+                          r.status === "ok" && { color: palette.green },
+                          r.status === "error" && { color: palette.danger },
+                        ]}
+                      >
+                        {r.status.toUpperCase()}
+                      </Text>
+                      <Text style={styles.runRowMeta}>
+                        {new Date(r.started_at).toLocaleString()} · {r.duration_ms}ms
+                      </Text>
+                      {r.error ? (
+                        <Text style={styles.runRowError} numberOfLines={2}>
+                          {r.error}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+            {selected ? (
+              <View style={styles.transcriptBox}>
+                <Text style={styles.fieldLabel}>TRANSCRIPT — {selected.run_id}</Text>
+                {loading ? (
+                  <ActivityIndicator color={palette.cyan} />
+                ) : (
+                  <Text style={styles.transcriptText}>
+                    {transcript || "(empty)"}
+                  </Text>
+                )}
+              </View>
+            ) : null}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 // ---- Field primitive (mirrors ToolsPanel intentionally to keep this file self-contained) ----
@@ -814,6 +1507,10 @@ const styles = StyleSheet.create({
     ...glow(palette.cyanGlow, 12),
   },
   primaryBtnPressed: { backgroundColor: "rgba(92,246,255,0.14)" },
+  primaryBtnDisabled: {
+    opacity: 0.4,
+    backgroundColor: "transparent",
+  },
   primaryBtnText: {
     color: palette.cyan,
     fontFamily: fonts.mono,
@@ -821,6 +1518,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     fontWeight: "600",
   },
+  primaryBtnTextDisabled: { color: palette.textMuted },
 
   secondaryBtn: {
     paddingHorizontal: space.md,
@@ -958,6 +1656,128 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.borderHair,
     overflow: "hidden",
+  },
+  /** Wider variant for the file browser + run history (Phase 23). */
+  modalCardWide: { maxWidth: 960 },
+  modalSubHeader: {
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: palette.borderSoft,
+    backgroundColor: "rgba(0,0,0,0.12)",
+  },
+  modalSubText: {
+    color: palette.textMuted,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 0.6,
+  },
+  linkText: {
+    color: palette.cyan,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 0.6,
+  },
+  errorBox: {
+    marginHorizontal: space.lg,
+    marginTop: space.sm,
+    padding: space.sm,
+    borderWidth: 1,
+    borderColor: palette.danger,
+    borderRadius: radii.sm,
+    backgroundColor: "rgba(255,80,80,0.05)",
+  },
+  errorBoxText: {
+    color: palette.danger,
+    fontFamily: fonts.mono,
+    fontSize: 11,
+  },
+  fileEntry: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    paddingVertical: 6,
+    paddingHorizontal: space.sm,
+    borderRadius: radii.sm,
+  },
+  fileEntryPressed: { backgroundColor: "rgba(0,0,0,0.18)" },
+  fileEntryIcon: {
+    color: palette.cyanDim,
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    width: 14,
+  },
+  fileEntryName: {
+    color: palette.textPrimary,
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    flex: 1,
+  },
+  fileEntryMeta: {
+    color: palette.textMuted,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+  },
+  fileMetaRow: {
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.borderSoft,
+    marginBottom: space.sm,
+  },
+  fileMetaText: {
+    color: palette.textMuted,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+  },
+  fileBody: {
+    color: palette.textPrimary,
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  runRow: {
+    paddingVertical: 6,
+    paddingHorizontal: space.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: palette.borderSoft,
+    gap: 2,
+  },
+  runRowActive: { borderColor: palette.cyan, backgroundColor: "rgba(0,0,0,0.16)" },
+  runRowPressed: { backgroundColor: "rgba(0,0,0,0.12)" },
+  runRowStatus: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    color: palette.textPrimary,
+  },
+  runRowMeta: {
+    color: palette.textMuted,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+  },
+  runRowError: {
+    color: palette.danger,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+  },
+  transcriptBox: {
+    marginTop: space.md,
+    padding: space.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: palette.borderSoft,
+    backgroundColor: "rgba(0,0,0,0.22)",
+    gap: 6,
+  },
+  transcriptText: {
+    color: palette.textPrimary,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    lineHeight: 14,
   },
   modalHeader: {
     flexDirection: "row",

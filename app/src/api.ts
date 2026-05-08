@@ -7,6 +7,7 @@ import type {
   CouncilRun,
   CouncilRunType,
   CronJob,
+  CronRun,
   Feature,
   Flow,
   Message,
@@ -332,6 +333,52 @@ export async function listCronJobs(): Promise<CronJob[]> {
   const res = await authFetch(`${apiBaseUrl()}/cron`);
   const body = await jsonOrThrow<{ jobs: CronJob[] }>(res);
   return body.jobs;
+}
+
+// Standalone cron — Phase 23. These endpoints only return data when
+// the cron's target is `kind: "standalone"`; for other targets the
+// server returns 400, which the UI handles by hiding the affordances.
+
+export async function listCronRuns(cronId: string): Promise<CronRun[]> {
+  const res = await authFetch(
+    `${apiBaseUrl()}/v1/cron/${encodeURIComponent(cronId)}/runs`,
+  );
+  const body = await jsonOrThrow<{ runs: CronRun[] }>(res);
+  return body.runs;
+}
+
+export async function readCronTranscript(
+  cronId: string,
+  runId: string,
+): Promise<string> {
+  const res = await authFetch(
+    `${apiBaseUrl()}/v1/cron/${encodeURIComponent(cronId)}/runs/${encodeURIComponent(
+      runId,
+    )}/transcript`,
+  );
+  const body = await jsonOrThrow<{ run_id: string; text: string }>(res);
+  return body.text;
+}
+
+export async function listCronFiles(
+  cronId: string,
+  relPath = "",
+): Promise<CodeListing> {
+  const url = `${apiBaseUrl()}/v1/cron/${encodeURIComponent(cronId)}/files${
+    relPath ? `?path=${encodeURIComponent(relPath)}` : ""
+  }`;
+  const res = await authFetch(url);
+  return await jsonOrThrow<CodeListing>(res);
+}
+
+export async function readCronFile(
+  cronId: string,
+  relPath: string,
+): Promise<CodeFile> {
+  const res = await authFetch(
+    `${apiBaseUrl()}/v1/cron/${encodeURIComponent(cronId)}/file?path=${encodeURIComponent(relPath)}`,
+  );
+  return await jsonOrThrow<CodeFile>(res);
 }
 
 // ---- Rules (Phase 12) ----

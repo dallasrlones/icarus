@@ -2,7 +2,12 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { dedupeSlug, nameToSlug, shortId, slugify } from "../ids.js";
 import { ensureDir, writeJson } from "../storage/json.js";
-import { projectDir, projectFile } from "../storage/paths.js";
+import {
+  cronTranscriptsDir,
+  cronWorkspaceDir,
+  projectDir,
+  projectFile,
+} from "../storage/paths.js";
 import { readFleet, writeFleet, type ProjectListing } from "../storage/fleet.js";
 import { globalLocks, projectLocks } from "../storage/locks.js";
 import {
@@ -205,8 +210,8 @@ export async function apply(envelope: MutationEnvelope, ctx: ApplyContext): Prom
     case "accept_tool_proposal":  return await applyAcceptToolProposal(envelope.payload);
     case "reject_tool_proposal":  return await applyRejectToolProposal(envelope.payload);
 
-    case "create_cron":           return await applyCreateCron(envelope.payload);
-    case "update_cron":           return await applyUpdateCron(envelope.payload);
+    case "create_cron":           return await applyCreateCron(envelope.payload, ctx);
+    case "update_cron":           return await applyUpdateCron(envelope.payload, ctx);
     case "archive_cron":          return await applyArchiveCron(envelope.payload);
     case "set_cron_enabled":      return await applySetCronEnabled(envelope.payload);
     case "run_cron_now":          return await applyRunCronNow(envelope.payload);
@@ -1963,7 +1968,10 @@ async function applyRunTool(payload: RunToolPayload): Promise<ApplyResult> {
 
 // ---- Cron (Phase 11) ----
 
-async function applyCreateCron(payload: CreateCronPayload): Promise<ApplyResult> {
+async function applyCreateCron(
+  payload: CreateCronPayload,
+  ctx: ApplyContext,
+): Promise<ApplyResult> {
   return await globalLocks.run("cron", async () => {
     try {
       parseCron(payload.schedule);
@@ -1973,8 +1981,16 @@ async function applyCreateCron(payload: CreateCronPayload): Promise<ApplyResult>
     const target = await assertCronTarget(payload.target);
     const jobs = await readCronJobs();
     const now = Date.now();
+
+    // Cron jobs always carry a slug now — it's the stable filesystem
+    // identifier for standalone targets and a friendly label for the
+    // others. Derived from `name`, deduped against existing slugs.
+    const taken = new Set(jobs.map((j) => j.slug).filter((s): s is string => !!s));
+    const slug = dedupeSlug(nameToSlug(payload.name, "cron"), taken);
+
     const job: CronJob = {
       id: shortId("cron"),
+      slug,
       name: payload.name,
       description: payload.description,
       schedule: payload.schedule,
@@ -1985,11 +2001,29 @@ async function applyCreateCron(payload: CreateCronPayload): Promise<ApplyResult>
     };
     jobs.unshift(job);
     await writeCronJobs(jobs);
+
+    // For standalone targets, mkdir -p the workspace + state dirs
+    // eagerly so the runner doesn't race against the first tick.
+    // Errors here are non-fatal (the runner will retry on each tick),
+    // but we surface them so the user sees the problem early.
+    if (target.kind === "standalone") {
+      try {
+        await ensureStandaloneDirs(slug, ctx.workspaceRoot);
+      } catch (err) {
+        console.warn(
+          `[cron] failed to pre-create dirs for standalone job ${slug}:`,
+          err,
+        );
+      }
+    }
     return { scope: { kind: "global" }, result: { job } };
   });
 }
 
-async function applyUpdateCron(payload: UpdateCronPayload): Promise<ApplyResult> {
+async function applyUpdateCron(
+  payload: UpdateCronPayload,
+  ctx: ApplyContext,
+): Promise<ApplyResult> {
   return await globalLocks.run("cron", async () => {
     const jobs = await readCronJobs();
     const job = jobs.find((j) => j.id === payload.cron_id);
@@ -2005,13 +2039,44 @@ async function applyUpdateCron(payload: UpdateCronPayload): Promise<ApplyResult>
       job.schedule = payload.schedule;
     }
     if (payload.target !== undefined) {
-      job.target = await assertCronTarget(payload.target);
+      const newTarget = await assertCronTarget(payload.target);
+      job.target = newTarget;
+      // If the user flipped an existing job into standalone, make sure
+      // its dirs exist. Backfill the slug for legacy rows that pre-date
+      // the field — derived from `name` and deduped against siblings.
+      if (newTarget.kind === "standalone") {
+        if (!job.slug) {
+          const taken = new Set(
+            jobs
+              .filter((j) => j.id !== job.id)
+              .map((j) => j.slug)
+              .filter((s): s is string => !!s),
+          );
+          job.slug = dedupeSlug(nameToSlug(job.name, "cron"), taken);
+        }
+        try {
+          await ensureStandaloneDirs(job.slug, ctx.workspaceRoot);
+        } catch (err) {
+          console.warn(
+            `[cron] failed to pre-create dirs for standalone job ${job.slug}:`,
+            err,
+          );
+        }
+      }
     }
     if (payload.enabled !== undefined) job.enabled = payload.enabled;
     job.updated_at = Date.now();
     await writeCronJobs(jobs);
     return { scope: { kind: "global" }, result: { job } };
   });
+}
+
+async function ensureStandaloneDirs(
+  cronSlug: string,
+  workspaceRoot: string,
+): Promise<void> {
+  await fs.mkdir(cronWorkspaceDir(workspaceRoot, cronSlug), { recursive: true });
+  await fs.mkdir(cronTranscriptsDir(cronSlug), { recursive: true });
 }
 
 async function applyArchiveCron(payload: ArchiveCronPayload): Promise<ApplyResult> {
@@ -2071,6 +2136,13 @@ type CronTargetInput =
       priority?: number;
       feature_id?: string;
       auto_start?: boolean;
+    }
+  | {
+      kind: "standalone";
+      tool_id?: string;
+      tool_name?: string;
+      prompt?: string;
+      args?: Record<string, string>;
     };
 
 async function assertCronTarget(target: CronTargetInput): Promise<CronJob["target"]> {
@@ -2134,6 +2206,52 @@ async function assertCronTarget(target: CronTargetInput): Promise<CronJob["targe
       priority: target.priority,
       feature_id: target.feature_id,
       auto_start: target.auto_start,
+    };
+  }
+  if (target.kind === "standalone") {
+    // Phase 23: cron owns its own workspace. Either reference an
+    // existing Tool (resolved by id-or-name like the `tool` target) or
+    // ship an inline prompt. Schema's `.refine` already enforces XOR;
+    // we just resolve the tool ref here when applicable.
+    if (target.tool_id || target.tool_name) {
+      const tools = await readTools();
+      let tool = target.tool_id
+        ? tools.find(
+            (t) => t.id === target.tool_id && t.status === "active",
+          ) ?? null
+        : null;
+      if (!tool && target.tool_name) {
+        const candidates = tools
+          .filter((t) => t.status === "active" && t.name === target.tool_name)
+          .sort((a, b) => b.created_at - a.created_at);
+        tool = candidates[0] ?? null;
+      }
+      if (!tool) {
+        throw new ApplicatorError(
+          `cron target tool not found: ${target.tool_id ?? target.tool_name}`,
+          404,
+        );
+      }
+      if (target.args) {
+        try {
+          coerceArgs(tool.params, target.args);
+        } catch (err) {
+          throw new ApplicatorError(
+            `cron tool args invalid: ${err instanceof Error ? err.message : String(err)}`,
+            400,
+          );
+        }
+      }
+      return {
+        kind: "standalone",
+        tool_id: tool.id,
+        args: target.args,
+      };
+    }
+    // Inline prompt path — schema already enforced length & exclusivity.
+    return {
+      kind: "standalone",
+      prompt: target.prompt,
     };
   }
   if (target.project_slug) await assertProject(target.project_slug);
