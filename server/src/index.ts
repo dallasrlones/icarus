@@ -35,6 +35,7 @@ import { authRouter } from "./auth/routes.js";
 import { requireAuth, requireMutablePassword } from "./auth/middleware.js";
 import { ensureBootstrapAdmin } from "./auth/service.js";
 import { closeAuthDb } from "./auth/db.js";
+import { ensureBootstrapRules } from "./rules/bootstrap.js";
 import {
   buildToolRunView,
   findTaskAcrossProjects,
@@ -947,6 +948,7 @@ app.post("/v1/mutations/apply", async (req: Request, res: Response) => {
 const server = app.listen(PORT, async () => {
   await ensureDir(dataRoot());
   await ensureBootstrapAdmin();
+  await ensureBootstrapRules();
   console.log(
     `icarus server listening on :${PORT} ` +
       `(binary=${CURSOR_BIN}, cwd=${CURSOR_CWD}, model=${CURSOR_MODEL ?? "default"}, ` +
