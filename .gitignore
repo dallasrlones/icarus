@@ -1,0 +1,54 @@
+# --- secrets / local config ---
+.env
+.env.*
+!.env.example
+
+# --- icarus runtime data ---
+# `store/` holds the JSON-on-disk database (chats, projects, tasks,
+# personas, tools, activity), the auth users SQLite database, and
+# the auto-generated JWT signing secret. Never committed;
+# bootstrapped on demand.
+store/
+
+# Belt-and-suspenders for the auth secrets in case the data root
+# moves out of `store/` via ICARUS_DATA / AUTH_DB_PATH /
+# JWT_SECRET_FILE. Drop these next to the repo and they're still
+# ignored.
+**/.jwt-secret
+**/auth.sqlite
+**/auth.sqlite-shm
+**/auth.sqlite-wal
+
+# `.workspace/` is the default agent-visible directory when WORKSPACE_DIR
+# is unset. Empty placeholder; users override in `.env`.
+.workspace/
+
+# Test/playground artifacts that occasionally end up at the repo root
+# (e.g., agent-generated scaffolding from earlier experiments).
+task-app/
+
+# --- build output ---
+**/dist/
+**/build/
+**/.next/
+**/.expo/
+**/.turbo/
+**/coverage/
+
+# --- dependencies ---
+**/node_modules/
+
+# --- logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- editor / OS ---
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+.cursor/

@@ -1,0 +1,71 @@
+services:
+  server:
+    build: ./server
+    image: icarus-server:latest
+    container_name: icarus-server
+    environment:
+      PORT: 4000
+      CURSOR_CWD: /workspace
+      # Where icarus persists its slug-dir store (chats, projects, tasks…).
+      ICARUS_DATA: /app/store
+      # Auto-created project workspaces land here (host-side: WORKSPACE_DIR).
+      WORKSPACE_ROOT: /workspace
+      # cursor-agent picks this up automatically.
+      CURSOR_API_KEY: ${CURSOR_API_KEY:?CURSOR_API_KEY is required - set it in .env}
+      # Optional. Leave unset to let cursor-agent pick its default.
+      CURSOR_MODEL: ${CURSOR_MODEL:-}
+      # Set to "true" if you want the agent to be able to write files in /workspace.
+      CURSOR_ALLOW_FILE_WRITES: ${CURSOR_ALLOW_FILE_WRITES:-false}
+      # Set to 1 to log every cursor-agent invocation + raw stdio.
+      CURSOR_DEBUG: ${CURSOR_DEBUG:-}
+      # Phase 15 — voice (push-to-talk + TTS). Both URLs point at a
+      # self-hosted Whisper / XTTS-v2 pair (e.g. a Jetson on your
+      # LAN). Leave unset to disable voice (the client hides the
+      # mic button when /v1/voice/health reports unhealthy).
+      VOICE_STT_URL: ${VOICE_STT_URL:-}
+      VOICE_TTS_URL: ${VOICE_TTS_URL:-}
+      VOICE_TTS_VOICE: ${VOICE_TTS_VOICE:-default}
+      VOICE_TTS_LANGUAGE: ${VOICE_TTS_LANGUAGE:-en}
+      # Phase 17 — Cursor usage panel. Pointer to the desktop's
+      # state.vscdb inside the container. The bind below mounts
+      # the parent dir read-only; this var is just the file path.
+      # Override on Linux/Windows where the desktop store lives
+      # elsewhere (e.g. ~/.config/Cursor/User/globalStorage/state.vscdb).
+      CURSOR_DESKTOP_PATH: ${CURSOR_DESKTOP_PATH:-/cursor-app/User/globalStorage/state.vscdb}
+    ports:
+      - "4000:4000"
+    volumes:
+      # Persisted icarus state (chat history, fleet, projects, activity).
+      # Lives on the host so container restarts don't wipe it.
+      - ./store:/app/store
+      # Phase 17 — read-only mount of the Cursor desktop's auth+state
+      # store so the server can pull the JWT for the dashboard service.
+      # Read-only is intentional: we never want to write back and risk
+      # corrupting the desktop's auth state. macOS path is the default;
+      # Linux users override CURSOR_DESKTOP_HOST_DIR.
+      - ${CURSOR_DESKTOP_HOST_DIR:-${HOME}/Library/Application Support/Cursor}:/cursor-app:ro
+      # Files the agent can see. Defaults to ./.workspace (an empty dir in
+      # this repo) to avoid macOS triggering Docker Desktop access prompts
+      # for TCC-protected folders (Documents/Desktop/Music/...). Set
+      # WORKSPACE_DIR in .env to whatever directory you want the agent
+      # rooted at (e.g. WORKSPACE_DIR=/Users/you/projects/some-repo).
+      - ${WORKSPACE_DIR:-./.workspace}:/workspace
+      # Docker-out-of-Docker. The agent inside the container talks to the
+      # host's Docker daemon through this socket — `docker ps`, `docker
+      # build`, `docker compose up`, etc. all run on the host. NOTE: this
+      # is effectively root-on-host; only mount it when you trust the agent.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  app:
+    build: ./app
+    image: icarus-app:latest
+    container_name: icarus-app
+    environment:
+      # Browser hits the host-published server port.
+      EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - server
+    restart: unless-stopped
