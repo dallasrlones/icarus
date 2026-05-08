@@ -3,6 +3,10 @@ services:
     build: ./server
     image: icarus-server:latest
     container_name: icarus-server
+    # Host networking so outbound TCP matches the Docker Desktop VM/host route to LAN
+    # STT/TTS (bridge containers often cannot reach 192.168.x.x on macOS). `ports:` is
+    # ineffective here — the API listens directly on port 4000 of the host namespace.
+    network_mode: host
     environment:
       PORT: 4000
       CURSOR_CWD: /workspace
@@ -32,8 +36,6 @@ services:
       # Override on Linux/Windows where the desktop store lives
       # elsewhere (e.g. ~/.config/Cursor/User/globalStorage/state.vscdb).
       CURSOR_DESKTOP_PATH: ${CURSOR_DESKTOP_PATH:-/cursor-app/User/globalStorage/state.vscdb}
-    ports:
-      - "4000:4000"
     volumes:
       # Persisted icarus state (chat history, fleet, projects, activity).
       # Lives on the host so container restarts don't wipe it.
