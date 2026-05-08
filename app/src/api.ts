@@ -23,22 +23,13 @@ import type {
   ToolProposal,
 } from "./types";
 import { authFetch } from "./auth";
+import { apiBaseUrl } from "./baseUrl";
 
-const FALLBACK_API = "http://localhost:4000";
-
-/**
- * Resolve API base URL. `EXPO_PUBLIC_API_URL` is the canonical override (works
- * on web + native). On web we additionally fall back to same-origin :4000 so a
- * dockerized frontend served on a non-localhost host still hits the backend.
- */
-export function apiBaseUrl(): string {
-  const fromEnv = process.env.EXPO_PUBLIC_API_URL;
-  if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/$/, "");
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    return `${window.location.protocol}//${window.location.hostname}:4000`;
-  }
-  return FALLBACK_API;
-}
+// Re-export so existing `import { apiBaseUrl } from "./api"` consumers
+// keep working — the function lives in `./baseUrl` to break the cycle
+// `api.ts -> auth.ts -> api.ts` (auth.ts only needs the base URL, and
+// pulling it from a leaf module keeps both files happy).
+export { apiBaseUrl };
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {

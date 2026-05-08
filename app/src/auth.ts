@@ -1,4 +1,4 @@
-import { apiBaseUrl } from "./api";
+import { apiBaseUrl } from "./baseUrl";
 
 /**
  * Client-side auth state. The server is the source of truth for the

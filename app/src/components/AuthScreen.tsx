@@ -51,7 +51,7 @@ export function AuthScreen({ mode, onAuthChanged }: AuthScreenProps) {
 function Shell(props: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
     <View style={styles.root}>
-      <View style={styles.grid} pointerEvents="none" />
+      <View style={[styles.grid, { pointerEvents: "none" }]} />
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.brandTag}>

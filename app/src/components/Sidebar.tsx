@@ -105,7 +105,14 @@ export function Sidebar({
               return (
                 <Pressable
                   key={chat.id}
-                  accessibilityRole="button"
+                  // `link` instead of `button` so this Pressable doesn't
+                  // render as a `<button>` on react-native-web — the
+                  // delete X below is itself a `<button>`, and the HTML
+                  // spec forbids nested buttons (DOM nesting validation
+                  // warning otherwise). Semantically it's also more
+                  // accurate: opening a chat is navigation, not an
+                  // action trigger.
+                  accessibilityRole="link"
                   accessibilityLabel={`Open chat: ${chat.title || "New chat"}`}
                   onPress={() => onSelectChat(chat.id)}
                   style={({ pressed }) => [

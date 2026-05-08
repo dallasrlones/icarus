@@ -78,7 +78,7 @@ export function VoiceButton(): ReactElement | null {
   const disabled = voice.state === "transcribing";
 
   return (
-    <View pointerEvents="box-none" style={styles.anchor}>
+    <View style={[styles.anchor, { pointerEvents: "box-none" }]}>
       {voice.state === "pending" && voice.pendingTranscript !== null ? (
         <PreviewBubble
           transcript={voice.pendingTranscript}

@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
-import { apiBaseUrl } from "../api";
+import { apiBaseUrl } from "../baseUrl";
+import { authFetch } from "../auth";
 
 /**
  * Phase 15 — TTS playback queue.
@@ -37,7 +38,7 @@ interface QueueEntry {
  * The server helper is pure (no LLM), so this is cheap.
  */
 async function splitSentences(text: string, maxChars = 240): Promise<string[]> {
-  const res = await fetch(`${apiBaseUrl()}/v1/voice/split_sentences`, {
+  const res = await authFetch(`${apiBaseUrl()}/v1/voice/split_sentences`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, max_chars: maxChars }),
@@ -48,7 +49,13 @@ async function splitSentences(text: string, maxChars = 240): Promise<string[]> {
 }
 
 async function fetchSpeechAudio(text: string): Promise<HTMLAudioElement & { _blobUrl: string }> {
-  const res = await fetch(`${apiBaseUrl()}/v1/voice/synthesize`, {
+  // The `<audio>` element loads the audio URL itself (not via fetch),
+  // so it can't pin our Authorization header. We resolve the
+  // playback URL by hitting `/v1/voice/synthesize` with `authFetch`,
+  // grabbing the response as a Blob, then handing the Blob URL to
+  // `<audio>`. That way the upstream auth check happens on the
+  // proxy POST, not on the playback GET (which never happens).
+  const res = await authFetch(`${apiBaseUrl()}/v1/voice/synthesize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -64,6 +71,7 @@ async function fetchSpeechAudio(text: string): Promise<HTMLAudioElement & { _blo
   audio.preload = "auto";
   return audio;
 }
+
 
 export class TTSPlayer {
   private spokenChunks = new Set<string>();

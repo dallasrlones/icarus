@@ -1,4 +1,4 @@
-import { apiBaseUrl } from "./api";
+import { apiBaseUrl } from "./baseUrl";
 import { getToken, subscribeAuth } from "./auth";
 
 /**

@@ -418,8 +418,7 @@ function LensCard({
         // marketing lens", and the border read → "marketing said
         // request_changes". Both signals coexist without fighting.
         <View
-          style={[styles.lensAccent, { backgroundColor: accentColor }]}
-          pointerEvents="none"
+          style={[styles.lensAccent, { backgroundColor: accentColor, pointerEvents: "none" }]}
         />
       ) : null}
       <View style={styles.lensHead}>
