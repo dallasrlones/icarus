@@ -1446,6 +1446,20 @@ void useChatStore.getState().refreshResolvedPersonas();
 // drives whether the floating mic button renders. Cheap (small JSON
 // from each upstream) and fire-and-forget.
 void useChatStore.getState().refreshVoiceHealth();
+
+/**
+ * Voice upstreams (especially TTS on a Jetson) often boot slower than the
+ * first `/v1/voice/health` poll — we used to probe once at startup and stay
+ * stuck on **VOICE OFFLINE** forever. Re-fetch periodically whenever voice
+ * is not explicitly disabled so recovery happens automatically once STT/TTS
+ * come up; maintenance polls also catch mid-session outages.
+ */
+const VOICE_HEALTH_POLL_MS = 20_000;
+setInterval(() => {
+  const v = useChatStore.getState().voice;
+  if (v.userDisabled) return;
+  void useChatStore.getState().refreshVoiceHealth();
+}, VOICE_HEALTH_POLL_MS);
 // Phase 20: load the per-role model selection so the Settings tab
 // renders with the user's actual choices on first paint and the
 // composer can surface "running on X" if we add that affordance

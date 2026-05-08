@@ -31,7 +31,8 @@ export interface VoiceHealth {
   tts: { ok: boolean; reason?: string; voice?: string; sample_rate?: number };
 }
 
-const PROBE_TIMEOUT_MS = 4000;
+/** XTTS / CUDA cold start can stall briefly before `/health` answers on-LAN. */
+const PROBE_TIMEOUT_MS = 12_000;
 
 async function probe(url: string, auth?: string): Promise<unknown> {
   const ctrl = new AbortController();

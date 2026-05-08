@@ -8,8 +8,8 @@ import { applyMutation } from "../api";
  *
  * Sits in the sidebar next to the cursor usage pill. Three
  * visual states drive off the existing voice slice in the store
- * (no extra polling — the store already refreshes voice health
- * on WS `voice_settings_changed` events and on a periodic timer):
+ * (startup poll + WS `voice_settings_changed` + ≈20s health poll while
+ * voice is enabled — avoids sticking OFFLINE after a slow Jetson TTS boot):
  *
  *   - ON · healthy   → green dot, "VOICE ON". Mic button is
  *                      visible everywhere it normally would be.
@@ -43,6 +43,13 @@ export function VoiceToggle() {
   const voice = useChatStore((s) => s.voice);
   const refreshVoiceHealth = useChatStore((s) => s.refreshVoiceHealth);
   const state = readState(voice);
+
+  const offlineHint =
+    state.kind === "on_offline" && voice.healthReason
+      ? voice.healthReason.length > 72
+        ? `${voice.healthReason.slice(0, 69)}…`
+        : voice.healthReason
+      : null;
 
   const onPress = async () => {
     // Toggle off when currently on (either healthy or offline)
@@ -81,7 +88,9 @@ export function VoiceToggle() {
     state.kind === "on_healthy"
       ? "tap to disable"
       : state.kind === "on_offline"
-        ? "upstream unreachable — tap to disable"
+        ? offlineHint
+          ? `${offlineHint} · tap to disable`
+          : "upstream unreachable — tap to disable"
         : "tap to enable";
 
   return (
@@ -96,7 +105,7 @@ export function VoiceToggle() {
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
         <Text style={styles.label}>{labelText}</Text>
       </View>
-      <Text style={styles.subText} numberOfLines={1}>
+      <Text style={styles.subText} numberOfLines={2}>
         {subText}
       </Text>
     </Pressable>
