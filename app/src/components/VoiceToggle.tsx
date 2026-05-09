@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useChatStore } from "../store";
 import { fonts, palette, radii, space } from "../theme";
@@ -42,6 +43,8 @@ function readState(voice: { available: boolean; userDisabled: boolean; healthRea
 export function VoiceToggle() {
   const voice = useChatStore((s) => s.voice);
   const refreshVoiceHealth = useChatStore((s) => s.refreshVoiceHealth);
+  const setVoiceState = useChatStore((s) => s.setVoiceState);
+  const [toggling, setToggling] = useState(false);
   const state = readState(voice);
 
   const offlineHint =
@@ -52,22 +55,33 @@ export function VoiceToggle() {
       : null;
 
   const onPress = async () => {
+    if (toggling) return;
     // Toggle off when currently on (either healthy or offline)
-    // and on when currently off. The server broadcasts the new
-    // state so the WS handler will refresh us; we also force a
-    // refresh here so the pill updates instantly even if the WS
-    // is briefly disconnected.
+    // and on when currently off. Optimistically patch the store so
+    // the pill flips immediately; then await health so we match
+    // the server (WS may also refresh other tabs).
     const nextEnabled = state.kind === "off_user";
+    setToggling(true);
+    setVoiceState(
+      nextEnabled
+        ? { userDisabled: false }
+        : {
+            userDisabled: true,
+            available: false,
+            healthReason: "voice disabled by user",
+          },
+    );
     try {
       await applyMutation({
         kind: "set_voice_enabled",
         payload: { enabled: nextEnabled },
       });
+      await refreshVoiceHealth();
     } catch {
-      // Best-effort: the WS event is the canonical source of truth.
-      // If the mutation failed we'll see the next health poll.
+      await refreshVoiceHealth();
+    } finally {
+      setToggling(false);
     }
-    void refreshVoiceHealth();
   };
 
   const dotColor =
@@ -96,9 +110,14 @@ export function VoiceToggle() {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.pill, pressed && styles.pillPressed]}
+      disabled={toggling}
+      style={({ pressed }) => [
+        styles.pill,
+        pressed && !toggling && styles.pillPressed,
+        toggling && styles.pillBusy,
+      ]}
       accessibilityRole="switch"
-      accessibilityState={{ checked: state.kind !== "off_user" }}
+      accessibilityState={{ checked: state.kind !== "off_user", busy: toggling }}
       accessibilityLabel={`Voice ${state.kind === "off_user" ? "off" : "on"}. Tap to toggle.`}
     >
       <View style={styles.headerRow}>
@@ -124,6 +143,7 @@ const styles = StyleSheet.create({
     borderColor: palette.borderHair,
   },
   pillPressed: { opacity: 0.7 },
+  pillBusy: { opacity: 0.55 },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",

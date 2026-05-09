@@ -13,6 +13,7 @@ import {
   type VoiceEndpointSettings,
 } from "../api";
 import { subscribe as subscribeEvents } from "../events";
+import { useChatStore } from "../store";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -215,7 +216,15 @@ function VoiceApiSection() {
     // Other tabs / agent verbs may flip voice config — re-fetch on
     // the broadcast so the form stays in sync.
     return subscribeEvents((ev) => {
-      if (ev.type === "voice_settings_changed") void refresh();
+      if (ev.type !== "voice_settings_changed") return;
+      void (async () => {
+        try {
+          await refresh();
+        } catch {
+          /* ignore — refreshVoiceHealth still runs below */
+        }
+        await useChatStore.getState().refreshVoiceHealth();
+      })();
     });
   }, []);
 
@@ -237,6 +246,7 @@ function VoiceApiSection() {
         language: next.tts.language,
       });
       setSavedAt(Date.now());
+      await useChatStore.getState().refreshVoiceHealth();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to save voice settings");
     } finally {

@@ -215,15 +215,6 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
   const chats = chatsByScope[key] ?? [];
   const activeChatId = activeChatByScope[key] ?? null;
 
-  // Auto-create a chat the first time we land in a scope with none.
-  useEffect(() => {
-    if (chats.length === 0 && !activeChatId) {
-      void newChat();
-    } else if (!activeChatId && chats.length > 0) {
-      void selectChat(chats[0].id);
-    }
-  }, [chats.length, activeChatId, newChat, selectChat, key]);
-
   const messages = activeChatId ? messagesByChat[activeChatId] ?? [] : [];
   const streamingText = activeChatId ? streamingByChat[activeChatId] ?? "" : "";
   const streamingPills = activeChatId ? streamingPillsByChat[activeChatId] ?? [] : [];
@@ -257,6 +248,25 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
     view.kind === "project" ? personasBySlug[view.slug] ?? [] : [];
   const projectResolvedPersonas =
     view.kind === "project" ? resolvedPersonasBySlug[view.slug] ?? [] : [];
+
+  const browserTabTitle =
+    view.kind === "global"
+      ? "Icarus"
+      : projectDetail?.project.name ??
+        projects.find((p) => p.slug === view.slug)?.name ??
+        view.slug;
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    document.title = browserTabTitle;
+  }, [browserTabTitle]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    return () => {
+      document.title = "Icarus";
+    };
+  }, []);
 
   return (
     <SafeAreaView style={styles.root}>

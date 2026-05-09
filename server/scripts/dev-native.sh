@@ -45,6 +45,11 @@ export ICARUS_DATA="${ICARUS_DATA:-$(pwd)/../store}"
 export CURSOR_DESKTOP_PATH="${CURSOR_DESKTOP_PATH:-$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb}"
 export PORT="${PORT:-4000}"
 
+# Cursor CLI installer drops binaries here; many shells omit ~/.local/bin → ENOENT on POST /chats.
+if [ -x "${HOME}/.local/bin/cursor-agent" ]; then
+  export PATH="${HOME}/.local/bin:${PATH}"
+fi
+
 if [ -z "${CURSOR_API_KEY:-}" ]; then
   echo "ERROR: CURSOR_API_KEY not set (looked in env and ../.env)" >&2
   exit 1

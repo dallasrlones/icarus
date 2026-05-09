@@ -11,6 +11,9 @@ import { getRecorder, getSpeaker, voiceClientSupported } from "./voice/controlle
  * cancel its predecessor cleanly.
  */
 const highlightTaskTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Serialize `refreshChats` per scope — Strict Mode / overlapping effects were spawning parallel `newChat()` calls. */
+const refreshChatsChainByKey: Record<string, Promise<void>> = {};
 import {
   scopeKey,
   type ActivityEntry,
@@ -505,42 +508,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async refreshChats() {
     const scope = viewScope(get().view);
     const key = scopeKey(scope);
-    try {
-      const chats = await api.listChats(scope);
-      set((s) => ({ chatsByScope: { ...s.chatsByScope, [key]: chats }, error: null }));
 
-      // Phase 21 — keep the chat tab usable after navigating to a
-      // scope for the first time (or after a brand-new project was
-      // just created by the user OR by the agent via `navigate`).
-      //
-      // Without this, "+ NEW PROJECT" → land on the project would
-      // sit on a dead composer (`disabled={busy || !activeChatId}`)
-      // because the new project has zero chats and no chat was
-      // ever picked. Same situation when the user manually deletes
-      // the last chat in a scope, or when another tab archives
-      // the chat we had cached as active.
-      //
-      // Self-heal in 3 cases:
-      //   1. We have an active chat for this scope and it still
-      //      exists in the list → leave it (most common; no-op).
-      //   2. We don't have an active chat (or the cached one was
-      //      deleted) and the list has at least one chat → pick
-      //      the most recent (chats are returned newest-first).
-      //   3. The list is empty → create a fresh chat so the user
-      //      can talk immediately. The new chat's id becomes the
-      //      active chat as a side-effect of `newChat`.
-      const activeId = get().activeChatByScope[key];
-      const activeStillValid = !!activeId && chats.some((c) => c.id === activeId);
-      if (activeStillValid) return;
+    const prev = refreshChatsChainByKey[key] ?? Promise.resolve();
+    const next = prev.then(async () => {
+      try {
+        const chats = await api.listChats(scope);
+        set((s) => ({ chatsByScope: { ...s.chatsByScope, [key]: chats }, error: null }));
 
-      if (chats.length > 0) {
-        await get().selectChat(chats[0].id);
-      } else {
-        await get().newChat();
+        // Phase 21 — keep the chat tab usable after navigating to a
+        // scope for the first time (or after a brand-new project was
+        // just created by the user OR by the agent via `navigate`).
+        //
+        // Without this, "+ NEW PROJECT" → land on the project would
+        // sit on a dead composer (`disabled={busy || !activeChatId}`)
+        // because the new project has zero chats and no chat was
+        // ever picked. Same situation when the user manually deletes
+        // the last chat in a scope, or when another tab archives
+        // the chat we had cached as active.
+        //
+        // Self-heal in 3 cases:
+        //   1. We have an active chat for this scope and it still
+        //      exists in the list → leave it (most common; no-op).
+        //   2. We don't have an active chat (or the cached one was
+        //      deleted) and the list has at least one chat → pick
+        //      the most recent (chats are returned newest-first).
+        //   3. The list is empty → create a fresh chat so the user
+        //      can talk immediately. The new chat's id becomes the
+        //      active chat as a side-effect of `newChat`.
+        const activeId = get().activeChatByScope[key];
+        const activeStillValid = !!activeId && chats.some((c) => c.id === activeId);
+        if (activeStillValid) return;
+
+        if (chats.length > 0) {
+          await get().selectChat(chats[0].id);
+        } else {
+          await get().newChat();
+        }
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : "failed to load chats" });
       }
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : "failed to load chats" });
-    }
+    });
+    refreshChatsChainByKey[key] = next.catch(() => {});
+    await next;
   },
 
   async selectChat(id) {
@@ -940,6 +949,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ) {
         void get().refreshCronJobs();
       }
+      if (
+        kind === "start_queue" ||
+        kind === "pause_queue" ||
+        kind === "stop_queue" ||
+        kind === "start_task"
+      ) {
+        void get().refreshQueue();
+      }
       // run_tool also creates a task → refresh tasks for the target project.
       if (kind === "run_tool") {
         const target = (envelope as { payload?: { project_slug?: string } }).payload;
@@ -1010,6 +1027,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const view = get().view;
           if (view.kind === "project") void get().refreshProjectRules(view.slug);
         }
+      }
+      // Phase 20 — model selection applies via mutation + WS; refresh
+      // immediately so the Settings dropdowns don't sit stale until
+      // the next `model_settings_changed` delivery.
+      if (kind === "set_models") {
+        await get().refreshModelSettings();
+      }
+      // Architecture approval flips `approved_at` on the architecture
+      // snapshot — was missing from the eager project refreshes above.
+      if (
+        slug &&
+        (kind === "approve_architecture" || kind === "unapprove_architecture")
+      ) {
+        void get().refreshArchitecture(slug);
+      }
+      // Questions tab (+ task linkage) — mirror WS `mutation_applied` when
+      // events are delayed or disconnected.
+      if (
+        slug &&
+        (kind === "enqueue_question" ||
+          kind === "answer_question" ||
+          kind === "dismiss_question")
+      ) {
+        void get().refreshQuestions(slug);
+        void get().refreshTasks(slug);
+      }
+      // Council rail lists runs per feature_id — payload always carries it.
+      const councilFeatureId = (
+        envelope as { payload?: { feature_id?: string } }
+      ).payload?.feature_id;
+      if (
+        slug &&
+        councilFeatureId &&
+        (kind === "approve_flow" ||
+          kind === "request_flow_review" ||
+          kind === "request_flow_changes" ||
+          kind === "request_task_planning" ||
+          kind === "approve_tasks")
+      ) {
+        void get().refreshCouncilRuns(slug, councilFeatureId);
       }
       return true;
     } catch (err) {
@@ -1689,7 +1746,9 @@ subscribeEvents((ev) => {
     kind === "update_service" ||
     kind === "remove_service" ||
     kind === "add_arch_edge" ||
-    kind === "remove_arch_edge"
+    kind === "remove_arch_edge" ||
+    kind === "approve_architecture" ||
+    kind === "unapprove_architecture"
   ) {
     void state.refreshArchitecture(slug);
   }
