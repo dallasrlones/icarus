@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
-import { Platform, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import {
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { NavMenuButton } from "./src/components/NavMenuButton";
 import { Sidebar } from "./src/components/Sidebar";
 import { Composer } from "./src/components/Composer";
 import { MessageList } from "./src/components/MessageList";
@@ -16,6 +27,7 @@ import { AuthScreen } from "./src/components/AuthScreen";
 import { VoiceButton } from "./src/components/VoiceButton";
 import { useChatStore } from "./src/store";
 import { fonts, hudGrid, palette, radii, space } from "./src/theme";
+import { useCompactLayout } from "./src/layout/compact";
 import { scopeKey, type ChatScope, type GlobalTab } from "./src/types";
 import {
   type AuthUser,
@@ -191,6 +203,11 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
   const voiceTarget = useChatStore((s) => s.voice.target);
   const voiceAvailable = useChatStore((s) => s.voice.available);
 
+  const compact = useCompactLayout();
+  const { width: windowWidth } = useWindowDimensions();
+  const [navOpen, setNavOpen] = useState(false);
+  const drawerWidth = Math.min(Math.round(windowWidth * 0.88), 300);
+
   const [newProjectVisible, setNewProjectVisible] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
 
@@ -205,6 +222,10 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
   useEffect(() => {
     void refreshChats();
   }, [view, refreshChats]);
+
+  useEffect(() => {
+    if (!compact) setNavOpen(false);
+  }, [compact]);
 
   const scope: ChatScope = view.kind === "global"
     ? { kind: "global" }
@@ -268,26 +289,52 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
     };
   }, []);
 
+  const sidebarProps = {
+    view,
+    chats,
+    activeChatId,
+    projects,
+    onSelectGlobal: () => selectGlobal(),
+    onSelectProject: (slug: string) => void selectProject(slug),
+    onSelectChat: (id: string) => void selectChat(id),
+    onNewChat: () => void newChat(),
+    onDeleteChat: (id: string) => void removeChat(id),
+    onNewProject: () => setNewProjectVisible(true),
+    username: user.username,
+    onChangePassword: onRequestPasswordChange,
+    onLogout: () => void logout(),
+  };
+
+  const globalTabButtons = (["chat", "tools", "cron", "rules", "personas", "settings"] as const).map((t) => {
+    const active = globalTab === t;
+    const pendingCount =
+      t === "tools"
+        ? toolProposals.filter((p) => p.status === "pending").length
+        : 0;
+    return (
+      <Pressable
+        key={t}
+        onPress={() => setGlobalTab(t)}
+        style={[styles.globalTab, active && styles.globalTabActive]}
+      >
+        <Text style={[styles.globalTabText, active && styles.globalTabTextActive]}>
+          {labelForGlobalTab(t)}
+        </Text>
+        {pendingCount > 0 ? (
+          <View style={styles.globalTabBadge}>
+            <Text style={styles.globalTabBadgeText}>{pendingCount}</Text>
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  });
+
   return (
     <SafeAreaView style={styles.root}>
       <StatusBar style="light" />
       <View style={[styles.shell, hudGrid as object]}>
-        <Sidebar
-          view={view}
-          chats={chats}
-          activeChatId={activeChatId}
-          projects={projects}
-          onSelectGlobal={() => selectGlobal()}
-          onSelectProject={(slug) => void selectProject(slug)}
-          onSelectChat={(id) => void selectChat(id)}
-          onNewChat={() => void newChat()}
-          onDeleteChat={(id) => void removeChat(id)}
-          onNewProject={() => setNewProjectVisible(true)}
-          username={user.username}
-          onChangePassword={onRequestPasswordChange}
-          onLogout={() => void logout()}
-        />
-        <View style={styles.main}>
+        {!compact ? <Sidebar {...sidebarProps} variant="inline" /> : null}
+        <View style={[styles.main, compact && styles.mainCompact]}>
           {error && (
             <Pressable
               onPress={() => useChatStore.setState({ error: null })}
@@ -301,51 +348,40 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
 
           {view.kind === "global" ? (
             <>
-              <View style={styles.topbar}>
-                <View style={styles.topbarLeft}>
-                  <Text style={styles.topbarLabel}>// global cockpit</Text>
-                  <Text style={styles.topbarTitle} numberOfLines={1}>
-                    {globalTab === "chat"
-                      ? chats.find((c) => c.id === activeChatId)?.title ?? "Chat"
-                      : globalTab === "tools"
-                      ? "Tools"
-                      : globalTab === "cron"
-                      ? "Cron"
-                      : globalTab === "rules"
-                      ? "Rules"
-                      : globalTab === "personas"
-                      ? "Personas"
-                      : "Settings"}
-                  </Text>
+              <View style={[styles.topbar, compact && styles.topbarCompact]}>
+                <View style={[styles.topbarMainRow, compact && styles.topbarMainRowCompact]}>
+                  {compact ? (
+                    <NavMenuButton onPress={() => setNavOpen(true)} />
+                  ) : null}
+                  <View style={[styles.topbarLeft, compact && styles.topbarLeftCompact]}>
+                    <Text style={styles.topbarLabel}>// global cockpit</Text>
+                    <Text style={styles.topbarTitle} numberOfLines={1}>
+                      {globalTab === "chat"
+                        ? chats.find((c) => c.id === activeChatId)?.title ?? "Chat"
+                        : globalTab === "tools"
+                          ? "Tools"
+                          : globalTab === "cron"
+                            ? "Cron"
+                            : globalTab === "rules"
+                              ? "Rules"
+                              : globalTab === "personas"
+                                ? "Personas"
+                                : "Settings"}
+                    </Text>
+                  </View>
+                  {!compact ? (
+                    <View style={styles.globalTabs}>{globalTabButtons}</View>
+                  ) : null}
                 </View>
-                <View style={styles.globalTabs}>
-                  {(["chat", "tools", "cron", "rules", "personas", "settings"] as const).map((t) => {
-                    const active = globalTab === t;
-                    // Phase 13: surface pending tool suggestions as a count
-                    // badge so the user can spot them without opening the
-                    // tab. Only render when > 0 to avoid visual noise.
-                    const pendingCount =
-                      t === "tools"
-                        ? toolProposals.filter((p) => p.status === "pending").length
-                        : 0;
-                    return (
-                      <Pressable
-                        key={t}
-                        onPress={() => setGlobalTab(t)}
-                        style={[styles.globalTab, active && styles.globalTabActive]}
-                      >
-                        <Text style={[styles.globalTabText, active && styles.globalTabTextActive]}>
-                          {labelForGlobalTab(t)}
-                        </Text>
-                        {pendingCount > 0 ? (
-                          <View style={styles.globalTabBadge}>
-                            <Text style={styles.globalTabBadgeText}>{pendingCount}</Text>
-                          </View>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                {compact ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.globalTabsScrollInner}
+                  >
+                    {globalTabButtons}
+                  </ScrollView>
+                ) : null}
               </View>
               {globalTab === "chat" ? (
                 <>
@@ -393,6 +429,8 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
             </>
           ) : (
             <ProjectDetail
+              compact={compact}
+              onOpenNav={() => setNavOpen(true)}
               detail={projectDetail}
               tab={view.tab}
               setTab={setProjectTab}
@@ -447,6 +485,31 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
         </View>
       </View>
 
+      {compact ? (
+        <Modal
+          visible={navOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setNavOpen(false)}
+        >
+          <View style={styles.drawerRoot}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close navigation menu"
+              style={styles.drawerBackdrop}
+              onPress={() => setNavOpen(false)}
+            />
+            <View style={[styles.drawerPanel, { width: drawerWidth }]}>
+              <Sidebar
+                {...sidebarProps}
+                variant="drawer"
+                onRequestClose={() => setNavOpen(false)}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
       <VoiceButton />
 
       <NewProjectModal
@@ -471,6 +534,26 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.bgDeep },
   shell: { flex: 1, flexDirection: "row", backgroundColor: palette.bgDeep },
   main: { flex: 1, backgroundColor: palette.bgBase },
+  mainCompact: { minWidth: 0 },
+  drawerRoot: { flex: 1, flexDirection: "row" },
+  drawerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.52)",
+  },
+  drawerPanel: {
+    flexShrink: 0,
+    alignSelf: "stretch",
+    maxHeight: "100%",
+    backgroundColor: palette.bgRaised,
+    borderLeftWidth: 1,
+    borderLeftColor: palette.borderHair,
+    ...Platform.select({
+      web: {
+        boxShadow: "-10px 0 32px rgba(0,0,0,0.45)",
+      },
+      default: {},
+    }),
+  },
   topbar: {
     flexDirection: "row",
     alignItems: "center",
@@ -481,7 +564,29 @@ const styles = StyleSheet.create({
     borderBottomColor: palette.borderHair,
     backgroundColor: palette.bgRaised,
   },
+  topbarCompact: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  topbarMainRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.sm,
+  },
+  topbarMainRowCompact: { justifyContent: "flex-start" },
   topbarLeft: { flexShrink: 1, gap: 2 },
+  topbarLeftCompact: { flex: 1, minWidth: 0 },
+  globalTabsScrollInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingRight: space.md,
+  },
   topbarLabel: {
     color: palette.cyanDim,
     fontFamily: fonts.mono,
@@ -511,7 +616,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    minHeight: 36,
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: palette.borderSoft,

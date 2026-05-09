@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { fonts, glow, palette, radii, space } from "../theme";
+import { useCompactLayout } from "../layout/compact";
 
 type WorkspaceMode = "auto" | "existing" | "none";
 
@@ -48,6 +49,7 @@ export function NewProjectModal({ visible, busy, onCancel, onSubmit }: Props) {
   const [description, setDescription] = useState("");
   const [mode, setMode] = useState<WorkspaceMode>("auto");
   const [path, setPath] = useState("");
+  const compact = useCompactLayout();
 
   const reset = () => {
     setName("");
@@ -76,8 +78,8 @@ export function NewProjectModal({ visible, busy, onCancel, onSubmit }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={styles.scrim}>
-        <View style={styles.dialog}>
+      <View style={[styles.scrim, compact && styles.scrimCompact]}>
+        <View style={[styles.dialog, compact && styles.dialogCompact]}>
           <View style={styles.head}>
             <Text style={styles.kicker}>// NEW PROJECT</Text>
             <Text style={styles.title}>Initialize project</Text>
@@ -184,6 +186,10 @@ const styles = StyleSheet.create({
     padding: space.xl,
     ...(Platform.OS === "web" ? { backdropFilter: "blur(6px)" as unknown as undefined } : {}),
   },
+  scrimCompact: {
+    padding: space.sm,
+    alignItems: "stretch",
+  },
   dialog: {
     width: "100%",
     maxWidth: 520,
@@ -194,6 +200,13 @@ const styles = StyleSheet.create({
     padding: space.xl,
     gap: space.lg,
     ...glow("rgba(92, 246, 255, 0.18)", 32),
+  },
+  dialogCompact: {
+    padding: space.md,
+    gap: space.md,
+    borderRadius: radii.md,
+    alignSelf: "center",
+    maxWidth: "100%",
   },
   head: { gap: 4 },
   kicker: {

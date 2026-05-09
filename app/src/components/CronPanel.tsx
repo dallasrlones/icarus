@@ -19,6 +19,8 @@ import {
   type CodeFileEntry,
   type CodeListing,
 } from "../api";
+import { useCompactLayout } from "../layout/compact";
+import { compactModalBackdrop, compactModalCard } from "../layout/compactModal";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -366,6 +368,8 @@ function CronEditorModal({
     setDraft(initial ? cronToDraft(initial) : blankDraft());
   }, [initial, visible]);
 
+  const compact = useCompactLayout();
+
   const target = draft.target;
   const tool =
     target.kind === "tool" ? tools.find((t) => t.id === target.tool_id) ?? null : null;
@@ -390,8 +394,8 @@ function CronEditorModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+      <View style={[styles.modalBackdrop, compact && compactModalBackdrop]}>
+        <View style={[styles.modalCard, compact && compactModalCard]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{title}</Text>
             <Pressable onPress={onCancel} hitSlop={10}>
@@ -1127,6 +1131,8 @@ function CronFilesModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const compact = useCompactLayout();
+
   useEffect(() => {
     if (!visible || !cron) {
       setListing(null);
@@ -1198,8 +1204,8 @@ function CronFilesModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, styles.modalCardWide]}>
+      <View style={[styles.modalBackdrop, compact && compactModalBackdrop]}>
+        <View style={[styles.modalCard, styles.modalCardWide, compact && compactModalCard]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>
               FILES: {cron?.name?.toUpperCase() ?? ""}
@@ -1303,6 +1309,8 @@ function CronRunsModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const compact = useCompactLayout();
+
   useEffect(() => {
     if (!visible || !cron) {
       setRuns(null);
@@ -1351,8 +1359,8 @@ function CronRunsModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, styles.modalCardWide]}>
+      <View style={[styles.modalBackdrop, compact && compactModalBackdrop]}>
+        <View style={[styles.modalCard, styles.modalCardWide, compact && compactModalCard]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>
               RUNS: {cron?.name?.toUpperCase() ?? ""}

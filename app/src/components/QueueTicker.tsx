@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCompactLayout } from "../layout/compact";
 import { fonts, glow, palette, radii, space } from "../theme";
 import type { ProjectListing, QueueSnapshot, RunningTaskStatus } from "../types";
 
@@ -26,6 +27,7 @@ interface Props {
 
 export function QueueTicker({ queue, runningTail, projects, onStart, onPause, onStop }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const compact = useCompactLayout();
 
   const { state, current, running } = queue;
   const runningCount = running?.length ?? (current ? 1 : 0);
@@ -50,41 +52,62 @@ export function QueueTicker({ queue, runningTail, projects, onStart, onPause, on
     ? projects.find((p) => p.slug === current.project_slug)?.name ?? current.project_slug
     : null;
 
+  const queueActions = (
+    <>
+      {state.run === "running" ? (
+        <ActionButton label="PAUSE" tone="amber" compact={compact} onPress={() => { onPause(); }} />
+      ) : state.run === "paused" ? (
+        <ActionButton label="RESUME" tone="cyan" compact={compact} onPress={() => { onStart(state.scope.project_slug); }} />
+      ) : (
+        <ActionButton label="▶ RUN" tone="cyan" compact={compact} onPress={() => { onStart(state.scope.project_slug); }} />
+      )}
+      {(state.run === "running" || state.run === "paused") && (
+        <ActionButton label="STOP" tone="rose" compact={compact} onPress={() => { onStop(); }} />
+      )}
+    </>
+  );
+
   return (
     <>
-      <Pressable onPress={() => setExpanded(true)} style={styles.bar}>
-        <View style={[styles.dot, { backgroundColor: dotColor }, glow(dotColor, 8) as object]} />
+      <Pressable onPress={() => setExpanded(true)} style={[styles.bar, compact && styles.barCompact]}>
+        <View style={[styles.barTop, compact && styles.barTopCompact]}>
+          <View style={[styles.dot, { backgroundColor: dotColor }, glow(dotColor, 8) as object]} />
 
-        <View style={styles.content}>
-          <View style={styles.headerRow}>
-            <Text style={styles.tag}>{statusLabel}</Text>
-            {runningCount > 1 && (
-              <Text style={styles.parallelTag}>×{runningCount}</Text>
-            )}
-            {projectName && <Text style={styles.project}>// {projectName}</Text>}
-            <Text style={styles.title} numberOfLines={1}>
-              {titleText}
-            </Text>
+          <View style={styles.content}>
+            <View style={styles.headerRow}>
+              <Text style={styles.tag}>{statusLabel}</Text>
+              {runningCount > 1 && (
+                <Text style={styles.parallelTag}>×{runningCount}</Text>
+              )}
+              {projectName && <Text style={styles.project}>// {projectName}</Text>}
+              <Text style={styles.title} numberOfLines={compact ? 2 : 1}>
+                {titleText}
+              </Text>
+            </View>
+            {!compact && tailPreview ? (
+              <Text style={styles.tail} numberOfLines={1}>
+                {tailPreview.slice(-160)}
+              </Text>
+            ) : null}
           </View>
-          {tailPreview ? (
-            <Text style={styles.tail} numberOfLines={1}>
-              {tailPreview.slice(-160)}
-            </Text>
-          ) : null}
         </View>
+        {compact && tailPreview ? (
+          <Text style={styles.tail} numberOfLines={2}>
+            {tailPreview.slice(-160)}
+          </Text>
+        ) : null}
 
-        <View style={styles.actions}>
-          {state.run === "running" ? (
-            <ActionButton label="PAUSE" tone="amber" onPress={() => { onPause(); }} />
-          ) : state.run === "paused" ? (
-            <ActionButton label="RESUME" tone="cyan" onPress={() => { onStart(state.scope.project_slug); }} />
-          ) : (
-            <ActionButton label="▶ RUN" tone="cyan" onPress={() => { onStart(state.scope.project_slug); }} />
-          )}
-          {(state.run === "running" || state.run === "paused") && (
-            <ActionButton label="STOP" tone="rose" onPress={() => { onStop(); }} />
-          )}
-        </View>
+        {compact ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.actionsScroll}
+          >
+            {queueActions}
+          </ScrollView>
+        ) : (
+          <View style={styles.actions}>{queueActions}</View>
+        )}
       </Pressable>
 
       <RunningTaskModal
@@ -98,7 +121,17 @@ export function QueueTicker({ queue, runningTail, projects, onStart, onPause, on
   );
 }
 
-function ActionButton({ label, tone, onPress }: { label: string; tone: "cyan" | "amber" | "rose"; onPress: () => void }) {
+function ActionButton({
+  label,
+  tone,
+  compact,
+  onPress,
+}: {
+  label: string;
+  tone: "cyan" | "amber" | "rose";
+  compact?: boolean;
+  onPress: () => void;
+}) {
   const color = tone === "cyan" ? palette.cyan : tone === "amber" ? palette.amber : palette.rose;
   const dim = tone === "cyan" ? palette.cyanDim : tone === "amber" ? "rgba(255,180,84,0.45)" : "rgba(255,107,155,0.45)";
   return (
@@ -106,6 +139,7 @@ function ActionButton({ label, tone, onPress }: { label: string; tone: "cyan" | 
       onPress={onPress}
       style={({ pressed }) => [
         styles.btn,
+        compact && styles.btnCompact,
         { borderColor: dim },
         pressed && glow(color, 12),
       ]}
@@ -129,12 +163,13 @@ function RunningTaskModal({
   projectName: string | null;
 }) {
   const { current, state, running } = queue;
+  const compact = useCompactLayout();
   const runningList = running ?? (current ? [current] : []);
   const fullTail = runningTail || current?.output_tail || "";
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+      <View style={[styles.modalBackdrop, compact && styles.modalBackdropCompact]}>
+        <View style={[styles.modalCard, compact && styles.modalCardCompact]}>
           <View style={styles.modalHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.modalKicker}>// running tasks ({runningList.length})</Text>
@@ -207,6 +242,23 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: palette.borderHair,
     backgroundColor: palette.bgRaised,
+  },
+  barCompact: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    paddingHorizontal: space.md,
+    gap: space.sm,
+  },
+  barTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: space.md,
+    minWidth: 0,
+    flex: 1,
+  },
+  barTopCompact: {
+    flex: 0,
+    alignSelf: "stretch",
   },
   dot: {
     width: 8,
@@ -288,13 +340,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  actions: { flexDirection: "row", gap: space.sm },
+  actions: { flexDirection: "row", gap: space.sm, flexShrink: 0 },
+  actionsScroll: {
+    flexDirection: "row",
+    gap: space.sm,
+    alignItems: "center",
+    paddingVertical: 4,
+    alignSelf: "stretch",
+  },
   btn: {
     paddingHorizontal: space.md,
     paddingVertical: 6,
+    minHeight: 36,
+    justifyContent: "center",
     borderWidth: 1,
     borderRadius: radii.pill,
     backgroundColor: palette.bgBase,
+  },
+  btnCompact: {
+    minHeight: 40,
+    paddingVertical: 9,
   },
   btnText: {
     fontFamily: fonts.mono,
@@ -309,6 +374,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: space.lg,
+  },
+  modalBackdropCompact: {
+    padding: space.sm,
+    alignItems: "stretch",
+  },
+  modalCardCompact: {
+    alignSelf: "stretch",
+    width: "100%",
+    maxHeight: "96%",
+    borderRadius: radii.md,
   },
   modalCard: {
     width: Platform.OS === "web" ? Math.min(880, undefined as unknown as number) : "100%",

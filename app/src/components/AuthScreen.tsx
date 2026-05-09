@@ -6,6 +6,7 @@ import {
   login,
   type AuthUser,
 } from "../auth";
+import { useCompactLayout } from "../layout/compact";
 
 /**
  * Pre-app auth shell. Two visual states share the same chrome —
@@ -49,10 +50,11 @@ export function AuthScreen({ mode, onAuthChanged }: AuthScreenProps) {
 }
 
 function Shell(props: { title: string; subtitle: string; children: React.ReactNode }) {
+  const compact = useCompactLayout();
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, compact && styles.rootCompact]}>
       <View style={[styles.grid, { pointerEvents: "none" }]} />
-      <View style={styles.card}>
+      <View style={[styles.card, compact && styles.cardCompact]}>
         <View style={styles.cardHeader}>
           <View style={styles.brandTag}>
             <View style={styles.brandDot} />
@@ -242,6 +244,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: space.xl,
   },
+  rootCompact: {
+    padding: space.md,
+  },
   grid: {
     ...StyleSheet.absoluteFillObject,
     ...(Platform.OS === "web" ? hudGrid : {}),
@@ -255,6 +260,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     padding: space.xl,
     ...glow(palette.cyanGlow, 32),
+  },
+  cardCompact: {
+    padding: space.lg,
+    maxWidth: 440,
   },
   cardHeader: {
     marginBottom: space.lg,

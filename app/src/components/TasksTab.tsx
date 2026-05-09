@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 import type { Feature, Task, TaskStatus } from "../types";
+import { useCompactLayout } from "../layout/compact";
+import { compactModalBackdrop, compactModalCard } from "../layout/compactModal";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -394,6 +396,8 @@ function NewAdHocTaskModal({
   const [busy, setBusy] = useState(false);
   const ready = title.trim().length > 0 && !busy;
 
+  const compact = useCompactLayout();
+
   const submit = async () => {
     if (!ready) return;
     setBusy(true);
@@ -420,8 +424,8 @@ function NewAdHocTaskModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={modalStyles.overlay}>
-        <View style={modalStyles.panel}>
+      <View style={[modalStyles.overlay, compact && compactModalBackdrop]}>
+        <View style={[modalStyles.panel, compact && compactModalCard]}>
           <Text style={modalStyles.kicker}>// AD-HOC TASK</Text>
           <Text style={modalStyles.title}>Add a task</Text>
           <Text style={modalStyles.subtitle}>

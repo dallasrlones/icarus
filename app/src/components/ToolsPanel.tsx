@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 import type { ProjectListing, Tool, ToolParam, ToolParamType, ToolProposal } from "../types";
+import { useCompactLayout } from "../layout/compact";
+import { compactModalBackdrop, compactModalCard } from "../layout/compactModal";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -298,6 +300,8 @@ function ToolEditorModal({
     else setDraft(blankDraft());
   }, [initial, seedDraft, visible]);
 
+  const compact = useCompactLayout();
+
   const updateParam = (idx: number, patch: Partial<ToolParam>) => {
     setDraft((d) => {
       const params = d.params.slice();
@@ -322,8 +326,8 @@ function ToolEditorModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+      <View style={[styles.modalBackdrop, compact && compactModalBackdrop]}>
+        <View style={[styles.modalCard, compact && compactModalCard]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{title}</Text>
             <Pressable onPress={onCancel} hitSlop={10}>
@@ -773,12 +777,14 @@ function RunToolModal({
     setAutoStart(true);
   }, [tool, visible, projects]);
 
+  const compact = useCompactLayout();
+
   if (!tool) return null;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+      <View style={[styles.modalBackdrop, compact && compactModalBackdrop]}>
+        <View style={[styles.modalCard, compact && compactModalCard]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>RUN: {tool.name.toUpperCase()}</Text>
             <Pressable onPress={onCancel} hitSlop={10}>

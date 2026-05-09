@@ -19,6 +19,7 @@ import type {
 } from "../types";
 import { ArchitectureCanvas } from "./ArchitectureCanvas";
 import { CodeBrowser } from "./CodeBrowser";
+import { NavMenuButton } from "./NavMenuButton";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { FeaturesTab } from "./FeaturesTab";
@@ -30,6 +31,10 @@ import { TasksTab } from "./TasksTab";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 interface Props {
+  /** Narrow viewport: show nav drawer affordance + tighter chrome. */
+  compact?: boolean;
+  onOpenNav?: () => void;
+
   detail: ProjectDetailType | null;
   tab: ProjectTab;
   setTab: (t: ProjectTab) => void;
@@ -115,6 +120,8 @@ const REAL_TABS = new Set<ProjectTab>([
 ]);
 
 export function ProjectDetail({
+  compact,
+  onOpenNav,
   detail,
   tab,
   setTab,
@@ -155,6 +162,8 @@ export function ProjectDetail({
   return (
     <View style={styles.root}>
       <ProjectHeader
+        compact={compact}
+        onOpenNav={onOpenNav}
         name={project.name}
         slug={project.slug}
         status={project.status}
@@ -163,7 +172,7 @@ export function ProjectDetail({
         counts={counts}
         onArchive={onArchive}
       />
-      <TabBar current={tab} onChange={setTab} />
+      <TabBar current={tab} onChange={setTab} compact={compact} />
       <View style={styles.tabBody}>
         {tab === "chat" && (
           <>
@@ -316,6 +325,8 @@ export function ProjectDetail({
 }
 
 function ProjectHeader({
+  compact,
+  onOpenNav,
   name,
   slug,
   status,
@@ -324,6 +335,8 @@ function ProjectHeader({
   counts,
   onArchive,
 }: {
+  compact?: boolean;
+  onOpenNav?: () => void;
   name: string;
   slug: string;
   status: string;
@@ -332,12 +345,22 @@ function ProjectHeader({
   counts: { features: number; tasks: number; flows: number };
   onArchive: () => void;
 }) {
+  const stats = (
+    <>
+      <Stat label="WORKSPACE" value={workspacePath ?? "(planning-only)"} mono />
+      <Stat label="FEATURES" value={String(counts.features)} mono />
+      <Stat label="TASKS" value={String(counts.tasks)} mono />
+      <Stat label="FLOWS" value={String(counts.flows)} mono />
+    </>
+  );
+
   return (
-    <View style={styles.header}>
-      <View style={styles.headerTop}>
+    <View style={[styles.header, compact && styles.headerCompact]}>
+      <View style={[styles.headerTop, compact && styles.headerTopCompact]}>
+        {compact && onOpenNav ? <NavMenuButton onPress={onOpenNav} /> : null}
         <View style={styles.headerLeft}>
           <Text style={styles.headerLabel}>// project</Text>
-          <Text style={styles.headerTitle} numberOfLines={1}>
+          <Text style={[styles.headerTitle, compact && styles.headerTitleCompact]} numberOfLines={1}>
             {name}
           </Text>
           <View style={styles.headerMeta}>
@@ -368,12 +391,17 @@ function ProjectHeader({
         </Pressable>
       </View>
       {description ? <Text style={styles.headerDesc}>{description}</Text> : null}
-      <View style={styles.headerStrip}>
-        <Stat label="WORKSPACE" value={workspacePath ?? "(planning-only)"} mono />
-        <Stat label="FEATURES" value={String(counts.features)} mono />
-        <Stat label="TASKS" value={String(counts.tasks)} mono />
-        <Stat label="FLOWS" value={String(counts.flows)} mono />
-      </View>
+      {compact ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.headerStripScroll}
+        >
+          {stats}
+        </ScrollView>
+      ) : (
+        <View style={styles.headerStrip}>{stats}</View>
+      )}
     </View>
   );
 }
@@ -392,13 +420,21 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
   );
 }
 
-function TabBar({ current, onChange }: { current: ProjectTab; onChange: (t: ProjectTab) => void }) {
+function TabBar({
+  current,
+  onChange,
+  compact,
+}: {
+  current: ProjectTab;
+  onChange: (t: ProjectTab) => void;
+  compact?: boolean;
+}) {
   return (
     <View style={styles.tabBar}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabBarContent}
+        contentContainerStyle={[styles.tabBarContent, compact && styles.tabBarContentCompact]}
       >
         {TABS.map((t) => {
           const active = t.id === current;
@@ -407,7 +443,7 @@ function TabBar({ current, onChange }: { current: ProjectTab; onChange: (t: Proj
             <Pressable
               key={t.id}
               onPress={() => onChange(t.id)}
-              style={[styles.tab, active && styles.tabActive]}
+              style={[styles.tab, active && styles.tabActive, compact && styles.tabCompact]}
             >
               <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
                 {t.label}
@@ -521,7 +557,13 @@ const styles = StyleSheet.create({
     backgroundColor: palette.bgRaised,
     gap: space.sm,
   },
+  headerCompact: {
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+    paddingBottom: space.sm,
+  },
   headerTop: { flexDirection: "row", alignItems: "flex-start", gap: space.lg },
+  headerTopCompact: { gap: space.sm, alignItems: "center" },
   headerLeft: { flex: 1, minWidth: 0 },
   headerLabel: {
     color: palette.violetDim,
@@ -537,6 +579,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.3,
     marginTop: 2,
+  },
+  headerTitleCompact: {
+    fontSize: 17,
   },
   headerMeta: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
   headerSlug: {
@@ -599,7 +644,14 @@ const styles = StyleSheet.create({
     gap: space.lg,
     marginTop: 4,
   },
-  stat: { gap: 2, minWidth: 80 },
+  headerStripScroll: {
+    flexDirection: "row",
+    gap: space.lg,
+    marginTop: 4,
+    paddingBottom: 2,
+    alignItems: "flex-start",
+  },
+  stat: { gap: 2, minWidth: 80, flexShrink: 0 },
   statLabel: {
     color: palette.textMuted,
     fontFamily: fonts.mono,
@@ -615,14 +667,20 @@ const styles = StyleSheet.create({
     backgroundColor: palette.bgBase,
   },
   tabBarContent: { paddingHorizontal: space.lg },
+  tabBarContentCompact: { paddingHorizontal: space.md },
   tab: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: space.md,
     paddingVertical: 10,
+    minHeight: 40,
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
+  },
+  tabCompact: {
+    paddingHorizontal: space.sm,
+    minHeight: 44,
   },
   tabActive: {
     borderBottomColor: palette.cyan,

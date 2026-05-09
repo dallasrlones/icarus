@@ -25,6 +25,8 @@ import type {
   ResolvedPersona,
 } from "../types";
 import { CouncilPanel } from "./CouncilPanel";
+import { COMPACT_BREAKPOINT, useCompactLayout } from "../layout/compact";
+import { compactModalBackdrop, compactModalCard } from "../layout/compactModal";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -112,6 +114,7 @@ export function FlowCanvas({
         : "pending";
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
+  const compactFlow = width < COMPACT_BREAKPOINT;
 
   const visibleFeatures = features.filter((f) => f.status !== "archived");
   const activeFeatureId =
@@ -271,12 +274,14 @@ export function FlowCanvas({
   return (
     <View style={styles.root}>
       <FeaturePicker
+        compact={compactFlow}
         features={visibleFeatures}
         activeId={activeFeatureId}
         onPick={(id) => onSelectFeature(id)}
       />
 
       <FlowToolbar
+        compact={compactFlow}
         feature={activeFeature}
         flow={activeFlow}
         mode={effectiveMode}
@@ -287,6 +292,7 @@ export function FlowCanvas({
       />
 
       <QuickAddBar
+        compact={compactFlow}
         disabled={!activeFeature}
         autoEdgeFromName={selectedNode?.label}
         onClearAutoEdge={() => setSelectedNodeId(null)}
@@ -315,6 +321,7 @@ export function FlowCanvas({
         <View style={styles.bodyMain}>
           {effectiveMode === "outline" ? (
             <OutlineView
+              compact={compactFlow}
               flow={activeFlow}
               selectedNodeId={selectedNodeId}
               onSelectNode={(id) =>
@@ -416,10 +423,12 @@ export function FlowCanvas({
 // ===================================================================
 
 function FeaturePicker({
+  compact,
   features,
   activeId,
   onPick,
 }: {
+  compact?: boolean;
   features: Feature[];
   activeId: string | null;
   onPick: (id: string) => void;
@@ -428,7 +437,7 @@ function FeaturePicker({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.pickerRow}
+      contentContainerStyle={[styles.pickerRow, compact && styles.pickerRowCompact]}
     >
       {features.map((f) => {
         const active = f.id === activeId;
@@ -441,7 +450,7 @@ function FeaturePicker({
           >
             <View style={[styles.pickerDot, { backgroundColor: dot.color }]} />
             <Text
-              style={[styles.pickerLabel, active && styles.pickerLabelActive]}
+              style={[styles.pickerLabel, compact && styles.pickerLabelCompact, active && styles.pickerLabelActive]}
               numberOfLines={1}
             >
               {f.name}
@@ -473,6 +482,7 @@ function featureStatusDot(status: FeatureStatus): { color: string; short: string
 // ===================================================================
 
 function FlowToolbar({
+  compact,
   feature,
   flow,
   mode,
@@ -481,6 +491,7 @@ function FlowToolbar({
   onOpenAdvanced,
   onAutoArrange,
 }: {
+  compact?: boolean;
   feature: Feature | null;
   flow: Flow | null;
   mode: FlowMode;
@@ -490,7 +501,7 @@ function FlowToolbar({
   onAutoArrange?: () => void;
 }) {
   return (
-    <View style={styles.toolbar}>
+    <View style={[styles.toolbar, compact && styles.toolbarCompact]}>
       <View style={styles.toolbarLeft}>
         <Text style={styles.toolbarLabel} numberOfLines={1}>
           {feature ? feature.name : "—"}
@@ -499,7 +510,7 @@ function FlowToolbar({
           {(flow?.nodes.length ?? 0)} nodes · {(flow?.edges.length ?? 0)} edges
         </Text>
       </View>
-      <View style={styles.toolbarRight}>
+      <View style={[styles.toolbarRight, compact && styles.toolbarRightCompact]}>
         {onAutoArrange && (flow?.nodes.length ?? 0) > 1 ? (
           <Pressable
             onPress={onAutoArrange}
@@ -549,11 +560,13 @@ function FlowToolbar({
 // ===================================================================
 
 function QuickAddBar({
+  compact,
   disabled,
   autoEdgeFromName,
   onClearAutoEdge,
   onSubmit,
 }: {
+  compact?: boolean;
   disabled: boolean;
   autoEdgeFromName?: string;
   onClearAutoEdge: () => void;
@@ -582,7 +595,7 @@ function QuickAddBar({
   };
 
   return (
-    <View style={styles.quickAddWrap}>
+    <View style={[styles.quickAddWrap, compact && styles.quickAddWrapCompact]}>
       <View style={styles.quickAddRow}>
         <Text style={styles.quickAddPrefix}>+ NODE</Text>
         <TextInput
@@ -595,7 +608,7 @@ function QuickAddBar({
           }
           placeholderTextColor={palette.textMuted}
           editable={!disabled}
-          style={styles.quickAddInput}
+          style={[styles.quickAddInput, compact && styles.quickAddInputCompact]}
           onKeyPress={onKeyPress}
           onSubmitEditing={() => void submit()}
           returnKeyType="done"
@@ -669,6 +682,7 @@ function kindAbbrev(k: FlowNodeKind): string {
 // ===================================================================
 
 function OutlineView({
+  compact,
   flow,
   selectedNodeId,
   onSelectNode,
@@ -680,6 +694,7 @@ function OutlineView({
   edgeSourceId,
   onCompleteWire,
 }: {
+  compact?: boolean;
   flow: Flow | null;
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
@@ -696,7 +711,7 @@ function OutlineView({
 }) {
   if (!flow || flow.nodes.length === 0) {
     return (
-      <View style={styles.outlineEmpty}>
+      <View style={[styles.outlineEmpty, compact && styles.outlineEmptyCompact]}>
         <Text style={styles.outlineEmptyTitle}>Empty flow</Text>
         <Text style={styles.outlineEmptySub}>
           Use the quick-add bar above to draft your first step. Press
@@ -716,7 +731,7 @@ function OutlineView({
   return (
     <ScrollView
       style={styles.outlineScroll}
-      contentContainerStyle={styles.outlineContent}
+      contentContainerStyle={[styles.outlineContent, compact && styles.outlineContentCompact]}
     >
       {ordered.map((node, i) => {
         const outgoing = flow.edges.filter((e) => e.from_node_id === node.id);
@@ -1515,6 +1530,8 @@ function NewNodeModal({
   const [busy, setBusy] = useState(false);
   const ready = label.trim().length > 0 && !busy;
 
+  const compact = useCompactLayout();
+
   const submit = async () => {
     if (!ready) return;
     setBusy(true);
@@ -1540,8 +1557,8 @@ function NewNodeModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={modalStyles.overlay}>
-        <View style={modalStyles.panel}>
+      <View style={[modalStyles.overlay, compact && compactModalBackdrop]}>
+        <View style={[modalStyles.panel, compact && compactModalCard]}>
           <Text style={modalStyles.kicker}>// FLOW NODE</Text>
           <Text style={modalStyles.title}>Add a node</Text>
 
@@ -1790,6 +1807,10 @@ const styles = StyleSheet.create({
     borderBottomColor: palette.borderHair,
     backgroundColor: palette.bgRaised,
   },
+  pickerRowCompact: {
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs,
+  },
   pickerChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -1816,6 +1837,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     maxWidth: 180,
   },
+  pickerLabelCompact: { maxWidth: 140 },
   pickerLabelActive: { color: palette.cyan, fontWeight: "700" },
   pickerStatus: {
     fontFamily: fonts.mono,
@@ -1836,6 +1858,12 @@ const styles = StyleSheet.create({
     borderBottomColor: palette.borderHair,
     backgroundColor: palette.bgBase,
   },
+  toolbarCompact: {
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    rowGap: space.sm,
+    paddingHorizontal: space.md,
+  },
   toolbarLeft: { gap: 2, flexShrink: 1 },
   toolbarLabel: {
     color: palette.textPrimary,
@@ -1850,6 +1878,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   toolbarRight: { flexDirection: "row", gap: 8, alignItems: "center" },
+  toolbarRightCompact: {
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    flex: 1,
+    width: "100%",
+    marginLeft: 0,
+  },
 
   toolBtn: {
     paddingHorizontal: 12,
@@ -1897,6 +1932,9 @@ const styles = StyleSheet.create({
     borderBottomColor: palette.borderHair,
     gap: 6,
   },
+  quickAddWrapCompact: {
+    paddingHorizontal: space.md,
+  },
   quickAddRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1922,6 +1960,9 @@ const styles = StyleSheet.create({
     borderColor: palette.borderSoft,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
+  },
+  quickAddInputCompact: {
+    minWidth: 120,
   },
   quickAddBtn: {
     paddingHorizontal: 14,
@@ -2027,12 +2068,17 @@ const styles = StyleSheet.create({
   // Outline view
   outlineScroll: { flex: 1, backgroundColor: palette.bgDeep },
   outlineContent: { padding: space.lg, gap: space.sm },
+  outlineContentCompact: { padding: space.md, gap: space.sm },
   outlineEmpty: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: space.xl,
     gap: 8,
+  },
+  outlineEmptyCompact: {
+    padding: space.lg,
+    paddingHorizontal: space.md,
   },
   outlineEmptyTitle: {
     color: palette.textPrimary,

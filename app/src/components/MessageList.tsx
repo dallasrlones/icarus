@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import type { Message, Pill } from "../types";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { PillRow } from "./PillRow";
+import { useScreenEdgePadding, useCompactLayout } from "../layout/compact";
 import { fonts, palette, radii, space } from "../theme";
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
 export function MessageList({ messages, streamingText, streamingPills, busy }: Props) {
   const ref = useRef<ScrollView>(null);
   const pillCount = streamingPills?.length ?? 0;
+  const edgePad = useScreenEdgePadding();
+  const compact = useCompactLayout();
 
   useEffect(() => {
     ref.current?.scrollToEnd({ animated: true });
@@ -22,7 +25,7 @@ export function MessageList({ messages, streamingText, streamingPills, busy }: P
 
   if (messages.length === 0 && !busy) {
     return (
-      <View style={styles.emptyWrap}>
+      <View style={[styles.emptyWrap, { paddingHorizontal: edgePad }]}>
         <Text style={styles.emptyKicker}>// READY</Text>
         <Text style={styles.emptyTitle}>Awaiting input</Text>
         <Text style={styles.emptySub}>
@@ -36,9 +39,13 @@ export function MessageList({ messages, streamingText, streamingPills, busy }: P
   const showStreaming = busy || streamingText.length > 0 || (streamingPills?.length ?? 0) > 0;
 
   return (
-    <ScrollView ref={ref} style={styles.scroll} contentContainerStyle={styles.content}>
+    <ScrollView
+      ref={ref}
+      style={styles.scroll}
+      contentContainerStyle={[styles.content, { paddingHorizontal: edgePad, paddingBottom: edgePad }]}
+    >
       {messages.map((msg) => (
-        <Bubble key={msg.id} role={msg.role} text={msg.text} pills={msg.pills} />
+        <Bubble key={msg.id} role={msg.role} text={msg.text} pills={msg.pills} bubbleMaxPct={compact ? "94%" : "84%"} />
       ))}
       {showStreaming && (
         <Bubble
@@ -46,6 +53,7 @@ export function MessageList({ messages, streamingText, streamingPills, busy }: P
           text={streamingText.length > 0 ? streamingText : "…"}
           pills={streamingPills}
           streaming
+          bubbleMaxPct={compact ? "94%" : "84%"}
         />
       )}
     </ScrollView>
@@ -57,11 +65,13 @@ function Bubble({
   text,
   pills,
   streaming,
+  bubbleMaxPct = "84%",
 }: {
   role: Message["role"];
   text: string;
   pills?: Pill[];
   streaming?: boolean;
+  bubbleMaxPct?: `${number}%`;
 }) {
   const isUser = role === "user";
   return (
@@ -69,6 +79,7 @@ function Bubble({
       <View
         style={[
           styles.bubble,
+          { maxWidth: bubbleMaxPct as `${number}%` },
           isUser ? styles.bubbleUser : styles.bubbleAssistant,
         ]}
       >
@@ -91,15 +102,14 @@ function Bubble({
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {
-    padding: space.xl,
+    paddingVertical: space.md,
     gap: space.md,
-    paddingBottom: space.xl,
   },
   emptyWrap: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: space.xl,
+    paddingVertical: space.xl,
     gap: 6,
   },
   emptyKicker: {
@@ -129,7 +139,6 @@ const styles = StyleSheet.create({
   rowLeft: { justifyContent: "flex-start" },
   rowRight: { justifyContent: "flex-end" },
   bubble: {
-    maxWidth: "84%",
     flexDirection: "row",
     borderRadius: radii.lg,
     overflow: "hidden",

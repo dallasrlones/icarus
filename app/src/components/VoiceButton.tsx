@@ -2,14 +2,18 @@ import { useEffect, useRef, type ReactElement } from "react";
 import {
   Animated,
   Easing,
+  Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useChatStore } from "../store";
+import { useCompactLayout } from "../layout/compact";
 import { palette, fonts, glow, radii, space } from "../theme";
 
 /**
@@ -39,6 +43,8 @@ import { palette, fonts, glow, radii, space } from "../theme";
 
 export function VoiceButton(): ReactElement | null {
   const voice = useChatStore((s) => s.voice);
+  const compact = useCompactLayout();
+  const { width: windowWidth } = useWindowDimensions();
   const arm = useChatStore((s) => s.voiceArm);
   const stopAndPreview = useChatStore((s) => s.voiceStopAndPreview);
   const editPending = useChatStore((s) => s.voiceEditPending);
@@ -78,16 +84,34 @@ export function VoiceButton(): ReactElement | null {
   const disabled = voice.state === "transcribing";
 
   return (
-    <View style={[styles.anchor, { pointerEvents: "box-none" }]}>
+    <View
+      style={[
+        styles.anchor,
+        compact && styles.anchorCompact,
+        { pointerEvents: "box-none" },
+      ]}
+    >
       {voice.state === "pending" && voice.pendingTranscript !== null ? (
-        <PreviewBubble
-          transcript={voice.pendingTranscript}
-          questionPreview={targetIsQuestion ? questionPreview : null}
-          onChange={editPending}
-          onSend={() => void confirmAndSend()}
-          onRerecord={() => void arm()}
-          onDiscard={discardPending}
-        />
+        compact ? (
+          <VoiceConfirmModal
+            transcript={voice.pendingTranscript}
+            questionPreview={targetIsQuestion ? questionPreview : null}
+            onChange={editPending}
+            onSend={() => void confirmAndSend()}
+            onRerecord={() => void arm()}
+            onDiscard={discardPending}
+          />
+        ) : (
+          <PreviewBubble
+            transcript={voice.pendingTranscript}
+            questionPreview={targetIsQuestion ? questionPreview : null}
+            bubbleWidth={Math.min(360, Math.max(280, windowWidth - 24))}
+            onChange={editPending}
+            onSend={() => void confirmAndSend()}
+            onRerecord={() => void arm()}
+            onDiscard={discardPending}
+          />
+        )
       ) : null}
 
       {/*
@@ -185,6 +209,7 @@ function labelForState(
  */
 function PreviewBubble(props: {
   transcript: string;
+  bubbleWidth: number;
   /**
    * Phase 15.2 — when the voice target is locked to a question,
    * the bubble surfaces a "→ Answering: <q>" header so the user
@@ -197,7 +222,7 @@ function PreviewBubble(props: {
   onRerecord: () => void;
   onDiscard: () => void;
 }): ReactElement {
-  const { transcript, questionPreview, onChange, onSend, onRerecord, onDiscard } = props;
+  const { transcript, questionPreview, bubbleWidth, onChange, onSend, onRerecord, onDiscard } = props;
 
   // Detect Enter on web for one-keystroke confirm. RN Native's
   // TextInput exposes onSubmitEditing for the same behavior, but we
@@ -210,7 +235,10 @@ function PreviewBubble(props: {
   };
 
   return (
-    <View style={bubbleStyles.frame} accessibilityLabel="Voice transcript preview">
+    <View
+      style={[bubbleStyles.frame, { width: bubbleWidth }]}
+      accessibilityLabel="Voice transcript preview"
+    >
       {questionPreview ? (
         // Soft inset reading "→ Answering: <q>" so the user can't
         // miss that SEND is going to fire `answer_question`. Same
@@ -264,13 +292,15 @@ function ActionButton(props: {
   color: string;
   onPress: () => void;
   emphasized?: boolean;
+  layout?: "inline" | "block";
 }): ReactElement {
-  const { label, color, onPress, emphasized } = props;
+  const { label, color, onPress, emphasized, layout } = props;
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         bubbleStyles.actionButton,
+        layout === "block" && bubbleStyles.actionButtonBlock,
         {
           borderColor: color,
           backgroundColor: emphasized
@@ -285,6 +315,79 @@ function ActionButton(props: {
     >
       <Text style={[bubbleStyles.actionLabel, { color }]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function VoiceConfirmModal(props: {
+  transcript: string;
+  questionPreview: string | null;
+  onChange: (text: string) => void;
+  onSend: () => void;
+  onRerecord: () => void;
+  onDiscard: () => void;
+}): ReactElement {
+  const { height } = useWindowDimensions();
+  const inputMin = Math.round(Math.min(Math.max(height * 0.38, 160), 480));
+  const { transcript, questionPreview, onChange, onSend, onRerecord, onDiscard } = props;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onDiscard}>
+      <View style={voiceModalStyles.backdrop}>
+        <View style={voiceModalStyles.sheet}>
+          <View style={voiceModalStyles.header}>
+            <Text style={voiceModalStyles.headerTitle}>CONFIRM VOICE MESSAGE</Text>
+            <Pressable
+              onPress={onDiscard}
+              hitSlop={12}
+              accessibilityLabel="Discard voice message"
+              style={({ pressed }) => pressed && { opacity: 0.75 }}
+            >
+              <Text style={voiceModalStyles.headerClose}>✕</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            style={voiceModalStyles.scroll}
+            contentContainerStyle={voiceModalStyles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {questionPreview ? (
+              <View style={[bubbleStyles.questionTag, voiceModalStyles.questionMargin]}>
+                <Text style={bubbleStyles.questionTagLabel}>→ ANSWERING</Text>
+                <Text style={bubbleStyles.questionTagBody}>{questionPreview}</Text>
+              </View>
+            ) : null}
+
+            <Text style={[bubbleStyles.heading, voiceModalStyles.sectionHeading]}>HEARD YOU SAY</Text>
+            <TextInput
+              value={transcript}
+              onChangeText={onChange}
+              multiline
+              placeholder="Transcript appears here — edit before sending."
+              placeholderTextColor={palette.textMuted}
+              style={[bubbleStyles.input, voiceModalStyles.modalInput, { minHeight: inputMin }]}
+              autoFocus
+              textAlignVertical="top"
+            />
+          </ScrollView>
+
+          <View style={voiceModalStyles.footer}>
+            <ActionButton label="DISCARD" color={palette.textSecondary} onPress={onDiscard} layout="block" />
+            <ActionButton label="RE-RECORD" color={palette.cyan} onPress={onRerecord} layout="block" />
+            <ActionButton
+              label={questionPreview ? "SEND ANSWER" : "SEND"}
+              color={palette.green}
+              onPress={onSend}
+              emphasized
+              layout="block"
+            />
+            <Text style={[bubbleStyles.hint, voiceModalStyles.footerHint]}>
+              Review the full message above, then tap SEND. Use ✕ or DISCARD to cancel.
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -350,6 +453,10 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     gap: 8,
   } as any,
+  anchorCompact: {
+    right: 12,
+    bottom: 72,
+  },
   button: {
     minWidth: 132,
     paddingHorizontal: 18,
@@ -393,7 +500,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.cyanDim,
     backgroundColor: "rgba(92, 246, 255, 0.06)",
-    maxWidth: 360,
+    width: "100%",
+    maxWidth: "92vw" as unknown as number,
   },
   targetBannerLabel: {
     fontFamily: fonts.mono,
@@ -421,14 +529,13 @@ const styles = StyleSheet.create({
 
 const bubbleStyles = StyleSheet.create({
   frame: {
-    width: 360,
-    maxWidth: "90vw" as unknown as number, // RN-Web only; harmless cast.
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: palette.borderStrong,
     backgroundColor: palette.bgPanel,
     padding: space.md,
     gap: space.sm,
+    maxWidth: "94vw" as unknown as number,
     ...glow(palette.cyanGlow, 24),
   },
   heading: {
@@ -455,6 +562,7 @@ const bubbleStyles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "flex-end",
     gap: space.sm,
   },
@@ -463,6 +571,12 @@ const bubbleStyles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: radii.pill,
     borderWidth: 1,
+  },
+  actionButtonBlock: {
+    alignSelf: "stretch",
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 12,
   },
   actionLabel: {
     fontFamily: fonts.body,
@@ -500,6 +614,80 @@ const bubbleStyles = StyleSheet.create({
     fontSize: 12,
     color: palette.textPrimary,
     lineHeight: 16,
+  },
+});
+
+const voiceModalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(5, 7, 13, 0.92)",
+    justifyContent: "center",
+    alignItems: "stretch",
+    padding: space.sm,
+  },
+  sheet: {
+    flex: 1,
+    maxHeight: "94%",
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    backgroundColor: palette.bgPanel,
+    overflow: "hidden",
+    ...glow(palette.cyanGlow, 22),
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.borderHair,
+    backgroundColor: "rgba(5, 7, 13, 0.35)",
+  },
+  headerTitle: {
+    flex: 1,
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 1.4,
+    fontWeight: "700",
+    color: palette.cyan,
+  },
+  headerClose: {
+    fontFamily: fonts.mono,
+    fontSize: 18,
+    color: palette.textMuted,
+    paddingHorizontal: 4,
+  },
+  scroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  scrollContent: {
+    padding: space.md,
+    paddingBottom: space.lg,
+    flexGrow: 1,
+  },
+  questionMargin: {
+    marginBottom: space.sm,
+  },
+  sectionHeading: {
+    marginBottom: 4,
+  },
+  modalInput: {
+    maxHeight: 8000,
+    flexGrow: 1,
+  },
+  footer: {
+    padding: space.md,
+    gap: space.sm,
+    borderTopWidth: 1,
+    borderTopColor: palette.borderHair,
+    backgroundColor: "rgba(5, 7, 13, 0.45)",
+  },
+  footerHint: {
+    textAlign: "center",
+    marginTop: 4,
   },
 });
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCompactLayout } from "../layout/compact";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 
 export function Composer({ disabled, onSend }: Props) {
   const [text, setText] = useState("");
+  const compact = useCompactLayout();
 
   const submit = () => {
     const trimmed = text.trim();
@@ -21,7 +23,7 @@ export function Composer({ disabled, onSend }: Props) {
   const sendDisabled = disabled || empty;
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, compact && styles.wrapCompact]}>
       <View style={styles.inputShell}>
         <Text style={styles.prompt}>{">"}</Text>
         <TextInput
@@ -51,6 +53,7 @@ export function Composer({ disabled, onSend }: Props) {
         disabled={sendDisabled}
         style={({ pressed }) => [
           styles.sendBtn,
+          compact && styles.sendBtnCompact,
           sendDisabled && styles.sendBtnDisabled,
           pressed && !sendDisabled && styles.sendBtnPressed,
           !sendDisabled && (glow(palette.cyanGlow, 18) as object),
@@ -76,6 +79,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: palette.borderHair,
     backgroundColor: palette.bgRaised,
+  },
+  wrapCompact: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
+    gap: space.sm,
   },
   inputShell: {
     flex: 1,
@@ -111,6 +121,7 @@ const styles = StyleSheet.create({
   sendBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     paddingHorizontal: 16,
     height: 44,
@@ -118,6 +129,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.cyan,
     backgroundColor: "rgba(92, 246, 255, 0.10)",
+  },
+  sendBtnCompact: {
+    alignSelf: "stretch",
+    width: "100%",
   },
   sendBtnDisabled: {
     backgroundColor: "rgba(80, 96, 116, 0.12)",

@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 import type { Feature, FeatureStatus, Task } from "../types";
+import { useCompactLayout } from "../layout/compact";
+import { compactModalBackdrop, compactModalCard } from "../layout/compactModal";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -266,6 +268,8 @@ function NewFeatureModal({
   const [busy, setBusy] = useState(false);
   const ready = name.trim().length > 0 && !busy;
 
+  const compact = useCompactLayout();
+
   const submit = async () => {
     if (!ready) return;
     setBusy(true);
@@ -288,8 +292,8 @@ function NewFeatureModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={modalStyles.overlay}>
-        <View style={modalStyles.panel}>
+      <View style={[modalStyles.overlay, compact && compactModalBackdrop]}>
+        <View style={[modalStyles.panel, compact && compactModalCard]}>
           <Text style={modalStyles.kicker}>// NEW FEATURE</Text>
           <Text style={modalStyles.title}>Add a feature</Text>
 

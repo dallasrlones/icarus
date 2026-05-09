@@ -15,6 +15,8 @@ import type {
   ServiceKind,
 } from "../types";
 import { SERVICE_KINDS } from "../types";
+import { useCompactLayout } from "../layout/compact";
+import { compactModalBackdrop, compactModalCard } from "../layout/compactModal";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -47,6 +49,7 @@ export function ArchitectureCanvas({ slug, architecture, applyMutation }: Props)
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [edging, setEdging] = useState(false);
+  const compact = useCompactLayout();
 
   const services = architecture?.services ?? [];
   const edges = architecture?.edges ?? [];
@@ -71,7 +74,7 @@ export function ArchitectureCanvas({ slug, architecture, applyMutation }: Props)
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
+      <View style={[styles.header, compact && styles.headerCompact]}>
         <Text style={styles.kicker}>// ARCHITECTURE · {services.length}</Text>
         <View style={styles.headerActions}>
           <Pressable
@@ -112,7 +115,7 @@ export function ArchitectureCanvas({ slug, architecture, applyMutation }: Props)
       />
 
       <View style={styles.split}>
-        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+        <ScrollView style={styles.list} contentContainerStyle={[styles.listContent, compact && styles.listContentCompact]}>
           {services.length === 0 ? (
             <Empty />
           ) : (
@@ -411,10 +414,12 @@ function AddServiceModal({
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const compact = useCompactLayout();
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+      <View style={[styles.modalBackdrop, compact && compactModalBackdrop]}>
+        <View style={[styles.modalCard, compact && compactModalCard]}>
           <Text style={styles.modalKicker}>// new service</Text>
           <Text style={styles.modalTitle}>Add a service to the map</Text>
           <Text style={styles.modalLabel}>NAME</Text>
@@ -659,6 +664,12 @@ const styles = StyleSheet.create({
     borderBottomColor: palette.borderHair,
     backgroundColor: palette.bgRaised,
   },
+  headerCompact: {
+    flexWrap: "wrap",
+    rowGap: space.sm,
+    alignItems: "flex-start",
+    paddingHorizontal: space.md,
+  },
   kicker: {
     color: palette.violetDim,
     fontFamily: fonts.mono,
@@ -766,6 +777,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.bgBase,
   },
   listContent: { padding: space.lg, gap: space.sm },
+  listContentCompact: { padding: space.md },
 
   row: {
     flexDirection: "row",

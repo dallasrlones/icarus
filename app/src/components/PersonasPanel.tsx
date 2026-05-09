@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 import type { Persona, ResolvedPersona } from "../types";
+import { useCompactLayout } from "../layout/compact";
+import { compactModalBackdrop, compactModalCard } from "../layout/compactModal";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 /**
@@ -342,10 +344,12 @@ function PersonaEditorModal({
 
   const isDefault = DEFAULT_KEYS.includes(draft.key);
 
+  const compact = useCompactLayout();
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+      <View style={[styles.modalBackdrop, compact && compactModalBackdrop]}>
+        <View style={[styles.modalCard, compact && compactModalCard]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{title}</Text>
             <Pressable onPress={onCancel} hitSlop={10}>

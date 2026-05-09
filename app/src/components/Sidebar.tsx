@@ -21,12 +21,18 @@ interface Props {
   onChangePassword?: () => void;
   /** Phase 22 — clear the JWT and return to the login screen. */
   onLogout?: () => void;
+  /** Inline strip vs overlay drawer — drawer fills parent width. */
+  variant?: "inline" | "drawer";
+  /** After scoped navigation — close mobile drawer. */
+  onRequestClose?: () => void;
 }
 
 /**
  * Single sidebar rendering both the project fleet and the chats for the
- * current scope. Mobile-first: collapses to overlay drawer on narrow
- * screens (handled by parent). Order, top to bottom:
+ * current scope. Narrow viewports render this inside a Modal drawer from
+ * `App` (`variant="drawer"`); wide layouts pin it as an inline rail.
+ *
+ * Order, top to bottom:
  *
  *   - brand
  *   - "+ New chat"
@@ -48,13 +54,16 @@ export function Sidebar({
   username,
   onChangePassword,
   onLogout,
+  variant = "inline",
+  onRequestClose,
 }: Props) {
+  const close = onRequestClose;
   const isGlobal = view.kind === "global";
   const activeSlug = view.kind === "project" ? view.slug : null;
   const scopeLabel = isGlobal ? "GLOBAL" : projects.find((p) => p.slug === activeSlug)?.name ?? activeSlug ?? "PROJECT";
 
   return (
-    <View style={styles.sidebar}>
+    <View style={[styles.sidebar, variant === "drawer" && styles.sidebarDrawer]}>
       {/* Header pinned at top — voice + usage stay visible regardless
           of scroll position. Brand row gets the pill stack underneath
           so user-state pills (voice on/off, billing) are immediately
@@ -85,7 +94,10 @@ export function Sidebar({
 
         <Pressable
           accessibilityRole="button"
-          onPress={onNewChat}
+          onPress={() => {
+            onNewChat();
+            close?.();
+          }}
           style={({ pressed }) => [styles.newBtn, pressed && styles.newBtnPressed]}
         >
           <Text style={styles.newBtnPlus}>+</Text>
@@ -114,7 +126,10 @@ export function Sidebar({
                   // action trigger.
                   accessibilityRole="link"
                   accessibilityLabel={`Open chat: ${chat.title || "New chat"}`}
-                  onPress={() => onSelectChat(chat.id)}
+                  onPress={() => {
+                    onSelectChat(chat.id);
+                    close?.();
+                  }}
                   style={({ pressed }) => [
                     styles.row,
                     active && styles.rowActive,
@@ -140,6 +155,7 @@ export function Sidebar({
                     onPress={(e) => {
                       e.stopPropagation();
                       onDeleteChat(chat.id);
+                      close?.();
                     }}
                     style={styles.deleteBtn}
                   >
@@ -161,7 +177,10 @@ export function Sidebar({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open Global scope"
-            onPress={onSelectGlobal}
+            onPress={() => {
+              onSelectGlobal();
+              close?.();
+            }}
             style={({ pressed }) => [
               styles.projectRow,
               isGlobal && styles.projectRowActive,
@@ -189,7 +208,10 @@ export function Sidebar({
                   key={p.slug}
                   accessibilityRole="button"
                   accessibilityLabel={`Open project: ${p.name}`}
-                  onPress={() => onSelectProject(p.slug)}
+                  onPress={() => {
+                    onSelectProject(p.slug);
+                    close?.();
+                  }}
                   style={({ pressed }) => [
                     styles.projectRow,
                     active && styles.projectRowActive,
@@ -216,7 +238,10 @@ export function Sidebar({
 
         <Pressable
           accessibilityRole="button"
-          onPress={onNewProject}
+          onPress={() => {
+            onNewProject();
+            close?.();
+          }}
           style={({ pressed }) => [styles.footerBtn, pressed && styles.footerBtnPressed]}
         >
           <Text style={styles.footerBtnPlus}>+</Text>
@@ -236,7 +261,10 @@ export function Sidebar({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Change password"
-                  onPress={onChangePassword}
+                  onPress={() => {
+                    onChangePassword();
+                    close?.();
+                  }}
                   style={({ pressed }) => [styles.accountAction, pressed && styles.accountActionPressed]}
                 >
                   <Text style={styles.accountActionText}>change pw</Text>
@@ -246,7 +274,10 @@ export function Sidebar({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Sign out"
-                  onPress={onLogout}
+                  onPress={() => {
+                    onLogout();
+                    close?.();
+                  }}
                   style={({ pressed }) => [styles.accountAction, pressed && styles.accountActionPressed]}
                 >
                   <Text style={styles.accountActionText}>sign out</Text>
@@ -273,6 +304,11 @@ function ScopeBar({ label, kind }: { label: string; kind: "global" | "project" }
 }
 
 const styles = StyleSheet.create({
+  sidebarDrawer: {
+    width: "100%",
+    flex: 1,
+    borderRightWidth: 0,
+  },
   sidebar: {
     width: 280,
     // Stretch to the parent flex row's full height so the inner
