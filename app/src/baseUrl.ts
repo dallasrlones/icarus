@@ -14,7 +14,15 @@ export function apiBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL;
   if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/$/, "");
   if (typeof window !== "undefined" && window.location?.hostname) {
-    return `${window.location.protocol}//${window.location.hostname}:4000`;
+    const host = window.location.hostname;
+    const proto = window.location.protocol;
+    // Split-domain tunnel: UI at icarus.<zone> → API at icarusapi.<same zone>.
+    // (Same-origin :4000 is wrong behind HTTPS-only hostname routing.)
+    if (host.startsWith("icarus.") && !host.startsWith("icarusapi.")) {
+      const suffix = host.slice("icarus.".length);
+      return `${proto}//icarusapi.${suffix}`;
+    }
+    return `${proto}//${host}:4000`;
   }
   return FALLBACK_API;
 }
