@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-"""
-Merge Icarus public hostnames into a remotely-managed Cloudflare Tunnel ingress.
-
-Requires CLOUDFLARE_API_TOKEN with permission to read/write Zero Trust tunnel
-configuration (e.g. Account → Cloudflare Tunnel → Edit).
+"""Merge Icarus hostnames into Cloudflare Tunnel ingress (API).
 
 Usage:
-  export CLOUDFLARE_API_TOKEN='...'
+  source ~/work/cloudflare/env.sh
   python3 scripts/cloudflare_add_icarus_tunnel_routes.py
 
-Optional env:
-  ACCOUNT_ID   (default: decoded from Orin tunnel token file when present)
-  TUNNEL_ID    (default: same)
+Optional: ACCOUNT_ID, TUNNEL_ID env overrides.
 """
 from __future__ import annotations
 
@@ -22,9 +16,8 @@ import sys
 import urllib.error
 import urllib.request
 
-# Tunnel backing systemd cloudflared-tunnel on Orin (from TUNNEL_TOKEN payload).
 DEFAULT_ACCOUNT_ID = "e5ca9d1cbd901078e5bbe1cbbff9151a"
-DEFAULT_TUNNEL_ID = "d0efca3a-9127-47ea-a083-9461df4cb25d"
+DEFAULT_TUNNEL_ID = "d0efca3a-9127-47ea-a083-9461df4cb25d"  # orin-agx-dev-kit
 
 ICARUS_HOSTS = frozenset({"icarus.aerekos.com", "icarusapi.aerekos.com"})
 ICARUS_RULES: list[dict] = [
@@ -53,13 +46,7 @@ def merge_ingress(existing: list[dict]) -> list[dict]:
 def main() -> int:
     token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
     if not token:
-        print(
-            "Missing CLOUDFLARE_API_TOKEN.\n"
-            "Create an API token with Zero Trust / Tunnel configuration edit scope, then:\n"
-            "  export CLOUDFLARE_API_TOKEN='...'\n"
-            "  python3 scripts/cloudflare_add_icarus_tunnel_routes.py",
-            file=sys.stderr,
-        )
+        print("Missing CLOUDFLARE_API_TOKEN (source ~/work/cloudflare/env.sh)", file=sys.stderr)
         return 1
 
     account_id = os.environ.get("ACCOUNT_ID", DEFAULT_ACCOUNT_ID).strip()
@@ -111,11 +98,10 @@ def main() -> int:
         print(json.dumps(out, indent=2), file=sys.stderr)
         return 1
 
-    print("Updated tunnel ingress. New hostnames:")
+    print("Tunnel ingress updated for:")
     for r in ICARUS_RULES:
         print(f"  {r['hostname']} -> {r['service']}")
-    print("\nRestart cloudflared on the Orin if routes do not apply immediately:")
-    print("  sudo systemctl restart cloudflared-tunnel")
+    print("\nOn the Orin: sudo systemctl restart cloudflared-tunnel")
     return 0
 
 
