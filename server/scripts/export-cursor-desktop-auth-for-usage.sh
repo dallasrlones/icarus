@@ -5,7 +5,10 @@
 # gigabytes — copying it to a LAN server or bind-mounting it into Docker is
 # impractical; this extract is typically ~12 KiB.
 #
-# Usage (macOS default source path):
+# Requires `sqlite3` on PATH (macOS/Linux/Git Bash). On Windows native shells,
+# prefer: cd server && npm run export-cursor-auth-stub -- <dest-path>
+#
+# Usage:
 #   ./server/scripts/export-cursor-desktop-auth-for-usage.sh \
 #     ./.cursor-ro-stub/User/globalStorage/state.vscdb
 #
@@ -17,7 +20,6 @@
 
 set -euo pipefail
 
-SRC="${CURSOR_DESKTOP_DB_SOURCE:-$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb}"
 DEST="${1:-}"
 
 if [[ -z "$DEST" ]]; then
@@ -26,8 +28,27 @@ if [[ -z "$DEST" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SRC" ]]; then
-  echo "error: source DB not found: $SRC" >&2
+SRC=""
+if [[ -n "${CURSOR_DESKTOP_DB_SOURCE:-}" && -f "$CURSOR_DESKTOP_DB_SOURCE" ]]; then
+  SRC="$CURSOR_DESKTOP_DB_SOURCE"
+else
+  _candidates=(
+    "$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb"
+    "${XDG_CONFIG_HOME:-$HOME/.config}/Cursor/User/globalStorage/state.vscdb"
+  )
+  if [[ -n "${APPDATA:-}" ]]; then
+    _candidates+=("$APPDATA/Cursor/User/globalStorage/state.vscdb")
+  fi
+  for p in "${_candidates[@]}"; do
+    if [[ -f "$p" ]]; then
+      SRC="$p"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$SRC" ]]; then
+  echo "error: Cursor desktop state.vscdb not found. Install Cursor, sign in once, or set CURSOR_DESKTOP_DB_SOURCE." >&2
   exit 1
 fi
 

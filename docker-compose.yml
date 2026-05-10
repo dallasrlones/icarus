@@ -45,8 +45,9 @@ services:
       # Read-only is intentional: we never want to write back and risk
       # corrupting the desktop's auth state.
       # macOS default: ~/Library/Application Support/Cursor
-      # Linux Docker: set CURSOR_DESKTOP_HOST_DIR=$HOME/.config/Cursor in .env
-      # (the mac-style Library/... path usually does not exist on Linux).
+      # Linux Docker: CURSOR_DESKTOP_HOST_DIR=$HOME/.config/Cursor
+      # Windows Docker Desktop: CURSOR_DESKTOP_HOST_DIR=C:/Users/You/AppData/Roaming/Cursor
+      # (forward slashes; path must contain User/globalStorage/state.vscdb after mount.)
       - ${CURSOR_DESKTOP_HOST_DIR:-${HOME}/Library/Application Support/Cursor}:/cursor-app:ro
       # Files the agent can see. Defaults to ./.workspace (an empty dir in
       # this repo) to avoid macOS triggering Docker Desktop access prompts

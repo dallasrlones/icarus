@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "export-cursor-auth-stub": "node ./scripts/export-cursor-desktop-auth-for-usage.mjs"
   },
   "dependencies": {
     "aerekos-record": "^0.1.4",

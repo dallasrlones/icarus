@@ -206,13 +206,24 @@ them with an absolute path. A planning-only project (no
 `workspace_path`) can be promoted later from the **Code** tab's inline
 setup form, which emits `update_project { workspace_path }`.
 
-**Cursor usage pill (Docker / Linux headless):** the desktop `state.vscdb`
-can be **many gigabytes**. Don’t copy the whole file onto a Jetson or NAS —
-run [`server/scripts/export-cursor-desktop-auth-for-usage.sh`](./server/scripts/export-cursor-desktop-auth-for-usage.sh)
-to emit a **~12 KiB** SQLite file with only the auth rows icarus reads, then
-set `CURSOR_DESKTOP_HOST_DIR` to the directory that contains
-`User/globalStorage/state.vscdb` (see `.env.example`). On macOS Docker the
-default `~/Library/Application Support/Cursor` bind mount still works.
+**Cursor usage pill:** icarus reads JWTs from the Cursor **desktop** SQLite
+(`state.vscdb`). Resolution order matches macOS, Linux (`~/.config/Cursor`), and
+Windows (`%APPDATA%\\Cursor`), plus optional `CURSOR_DESKTOP_PATH` / Docker bind
+at `/cursor-app` — see [`server/src/cursor_usage/client.ts`](./server/src/cursor_usage/client.ts).
+
+The real desktop file is often **many gigabytes**. For Docker on Linux
+(Ubuntu/Jetson), Windows, or any headless box, generate a **~12 KiB** auth-only
+stub (same rows the server reads):
+
+```bash
+cd server && npm install   # once — uses better-sqlite3; no sqlite3 CLI needed
+npm run export-cursor-auth-stub -- ../.cursor-ro-stub/User/globalStorage/state.vscdb
+```
+
+Then point `CURSOR_DESKTOP_HOST_DIR` at `…/.cursor-ro-stub` (see `.env.example`).
+Shell alternative (needs `sqlite3` on PATH): [`server/scripts/export-cursor-desktop-auth-for-usage.sh`](./server/scripts/export-cursor-desktop-auth-for-usage.sh).
+On macOS Docker, the default `~/Library/Application Support/Cursor` bind mount
+still works if Cursor desktop is on the same machine.
 
 ## Run without Docker
 
@@ -243,7 +254,7 @@ launcher).
 | `CURSOR_CWD`                     | `process.cwd()` / `/workspace`   | Working dir the agent operates in (`--workspace`).                                                 |
 | `CURSOR_MODEL`                   | _(unset)_                        | Optional model id (`composer-2`, `auto`, …). Empty = CLI default. **Per-role override** in Settings tab → models (chat vs agent). |
 | `CURSOR_ALLOW_FILE_WRITES`       | `false`                          | When `true`, passes `--force` so tool calls can mutate files.                                      |
-| `CURSOR_DESKTOP_HOST_DIR` (compose) | `~/Library/Application Support/Cursor` (macOS) | Host dir for the Cursor desktop's `state.vscdb` (read-only mount). Powers the Usage pill. Override on Linux (`~/.config/Cursor`) / Windows (`%APPDATA%\Cursor`). |
+| `CURSOR_DESKTOP_HOST_DIR` (compose) | `~/Library/Application Support/Cursor` (macOS default) | Host dir mounted read-only at `/cursor-app` for the usage pill. **Linux:** `~/.config/Cursor`. **Windows:** e.g. `C:/Users/You/AppData/Roaming/Cursor`. Use an auth [stub](#run-with-docker) on headless servers. |
 | `WORKSPACE_DIR` (compose)        | `./.workspace` (empty)           | Host directory bind-mounted at `/workspace`. Per-project workspaces are children of this.          |
 | `ICARUS_DATA` (compose)          | `./store`                        | Where the JSON store lives — projects, chats, council runs, activity logs.                         |
 | `ICARUS_QUEUE_PARALLELISM`       | `2` (cap `8`)                    | Number of concurrent task slots in the autonomous worker.                                          |
