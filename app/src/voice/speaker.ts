@@ -8,8 +8,10 @@ import { authFetch } from "../auth";
  * Streams the assistant's reply through the icarus-server voice
  * proxy a sentence at a time. We `splitSentencesForTTS` (server
  * helper) on the running text every time more streams in, fetch
- * the WAV for any new sentences, and play them sequentially using
- * the browser's HTMLAudioElement.
+ * audio for each sentence, and play sequentially via **Web Audio**
+ * (`decodeAudioData` + buffer sources) when available — mobile
+ * Safari handles that better than `<audio>` blob playback after
+ * async work — with `<audio>` as a fallback.
  *
  * Why server-side splitting: the splitter strips markdown noise
  * (code fences, bullets, URLs) so the TTS doesn't read "asterisk
@@ -73,8 +75,9 @@ export function primeMobilePlaybackFromUserGesture(): void {
 
 interface QueueEntry {
   text: string;
-  audio: HTMLAudioElement;
-  blobUrl: string;
+  blob: Blob;
+  /** Generation captured when the chunk was enqueued — stale chunks skip after cancel(). */
+  gen: number;
 }
 
 /**
@@ -92,13 +95,7 @@ async function splitSentences(text: string, maxChars = 240): Promise<string[]> {
   return Array.isArray(data.chunks) ? data.chunks : [];
 }
 
-async function fetchSpeechAudio(text: string): Promise<HTMLAudioElement & { _blobUrl: string }> {
-  // The `<audio>` element loads the audio URL itself (not via fetch),
-  // so it can't pin our Authorization header. We resolve the
-  // playback URL by hitting `/v1/voice/synthesize` with `authFetch`,
-  // grabbing the response as a Blob, then handing the Blob URL to
-  // `<audio>`. That way the upstream auth check happens on the
-  // proxy POST, not on the playback GET (which never happens).
+async function fetchSpeechBlob(text: string): Promise<Blob> {
   const res = await authFetch(`${apiBaseUrl()}/v1/voice/synthesize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -108,15 +105,7 @@ async function fetchSpeechAudio(text: string): Promise<HTMLAudioElement & { _blo
     const body = await res.text().catch(() => "");
     throw new Error(`synthesize ${res.status}: ${body.slice(0, 200)}`);
   }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url) as HTMLAudioElement & { _blobUrl: string };
-  audio._blobUrl = url;
-  audio.preload = "auto";
-  audio.volume = 1;
-  audio.setAttribute("playsinline", "");
-  (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
-  return audio;
+  return await res.blob();
 }
 
 
@@ -124,6 +113,10 @@ export class TTSPlayer {
   private spokenChunks = new Set<string>();
   private queue: QueueEntry[] = [];
   private playing = false;
+  /** Active Web Audio source — stopped on `cancel()` so interruption works. */
+  private currentBufferSource: AudioBufferSourceNode | null = null;
+  /** Fallback `<audio>` element currently playing (if any). */
+  private currentHtmlAudio: HTMLAudioElement | null = null;
   /** Set true while the player is actively pulling new chunks. */
   private active = false;
   /** Latest streaming text the caller has fed us. */
@@ -183,13 +176,9 @@ export class TTSPlayer {
       if (this.spokenChunks.has(chunk)) continue;
       this.spokenChunks.add(chunk);
       try {
-        const audio = await fetchSpeechAudio(chunk);
-        if (myGen !== this.generation) {
-          // Cancellation snuck in — release the URL we just made and bail.
-          URL.revokeObjectURL(audio._blobUrl);
-          return;
-        }
-        this.queue.push({ text: chunk, audio, blobUrl: audio._blobUrl });
+        const blob = await fetchSpeechBlob(chunk);
+        if (myGen !== this.generation) return;
+        this.queue.push({ text: chunk, blob, gen: myGen });
         void this.drain();
       } catch (err) {
         console.error("[voice] synthesize failed for chunk:", err);
@@ -215,19 +204,98 @@ export class TTSPlayer {
    */
   cancel(): void {
     this.generation++;
+    try {
+      this.currentBufferSource?.stop();
+    } catch {
+      /* already stopped */
+    }
+    this.currentBufferSource = null;
+    try {
+      this.currentHtmlAudio?.pause();
+    } catch {
+      /* ignore */
+    }
+    this.currentHtmlAudio = null;
     this.active = false;
     this.currentText = "";
     this.spokenChunks.clear();
-    for (const entry of this.queue) {
-      try {
-        entry.audio.pause();
-      } catch {
-        /* ignore */
-      }
-      URL.revokeObjectURL(entry.blobUrl);
-    }
     this.queue = [];
     this.playing = false;
+  }
+
+  private getPlaybackContext(): AudioContext | null {
+    if (!speakerSupported()) return null;
+    try {
+      const W = window as typeof window & { webkitAudioContext?: typeof AudioContext };
+      const AC = window.AudioContext ?? W.webkitAudioContext;
+      if (!AC) return null;
+      if (!primedAudioCtx || primedAudioCtx.state === "closed") {
+        primedAudioCtx = new AC();
+      }
+      return primedAudioCtx;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Prefer Web Audio (`decodeAudioData` + buffer source): iOS Safari often blocks
+   * `HTMLAudioElement.play()` on blob URLs after network/async gaps even when
+   * the mic was opened from a tap; playback through an AudioContext primed in
+   * the same gesture tends to succeed for the whole session.
+   */
+  private async playBlob(blob: Blob, gen: number): Promise<void> {
+    const ctx = this.getPlaybackContext();
+    if (ctx) {
+      try {
+        await ctx.resume();
+        const raw = await blob.arrayBuffer();
+        if (gen !== this.generation) return;
+        const audioBuf = await ctx.decodeAudioData(raw.slice(0));
+        if (gen !== this.generation) return;
+        await new Promise<void>((resolve) => {
+          const src = ctx.createBufferSource();
+          this.currentBufferSource = src;
+          src.buffer = audioBuf;
+          src.connect(ctx.destination);
+          src.onended = () => {
+            if (this.currentBufferSource === src) this.currentBufferSource = null;
+            resolve();
+          };
+          src.start(0);
+        });
+        return;
+      } catch (err) {
+        console.error("[voice] Web Audio playback failed:", err);
+        try {
+          this.currentBufferSource?.stop();
+        } catch {
+          /* ignore */
+        }
+        this.currentBufferSource = null;
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    try {
+      const audio = new Audio(url);
+      this.currentHtmlAudio = audio;
+      audio.preload = "auto";
+      audio.volume = 1;
+      audio.setAttribute("playsinline", "");
+      (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
+      await new Promise<void>((resolve) => {
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve();
+        void audio.play().catch((e) => {
+          console.error("[voice] audio.play failed:", e);
+          resolve();
+        });
+      });
+    } finally {
+      this.currentHtmlAudio = null;
+      URL.revokeObjectURL(url);
+    }
   }
 
   private async drain(): Promise<void> {
@@ -236,17 +304,8 @@ export class TTSPlayer {
     try {
       while (this.queue.length > 0) {
         const entry = this.queue.shift()!;
-        await new Promise<void>((resolve) => {
-          entry.audio.onended = () => resolve();
-          entry.audio.onerror = () => resolve();
-          entry.audio
-            .play()
-            .catch((err) => {
-              console.error("[voice] audio.play failed:", err);
-              resolve();
-            });
-        });
-        URL.revokeObjectURL(entry.blobUrl);
+        if (entry.gen !== this.generation) continue;
+        await this.playBlob(entry.blob, entry.gen);
       }
     } finally {
       this.playing = false;

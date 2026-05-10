@@ -714,6 +714,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // If a project mutation just landed, refresh local project state so
           // counts/lists reflect reality without waiting for a manual reload.
           if (pill.phase === "applied") {
+            // Same navigation as WS `nav_request`, but carried on the chat SSE
+            // stream. Mobile Safari often drops or delays `/v1/events` while the
+            // POST chat stream stays healthy — applying here keeps voice nav working.
+            if (pill.kind === "navigate" && pill.result && typeof pill.result === "object") {
+              const target = (pill.result as { target?: unknown }).target;
+              if (
+                target &&
+                typeof target === "object" &&
+                target !== null &&
+                "kind" in target &&
+                typeof (target as { kind: unknown }).kind === "string"
+              ) {
+                applyAgentNavigateTarget(target as AgentNavigateTarget);
+              }
+            }
             void get().refreshProjects();
             const view = get().view;
             if (view.kind === "project") {
@@ -1561,6 +1576,28 @@ subscribeAuth((auth) => {
 // later.
 void useChatStore.getState().refreshModelSettings();
 
+/** Resolved navigate target from agent `navigate` mutation (server `ResolvedTarget`). */
+type AgentNavigateTarget =
+  | { kind: "global"; tab?: string }
+  | { kind: "project"; project_slug: string; tab?: string }
+  | { kind: "feature"; project_slug: string; feature_id: string }
+  | { kind: "task"; project_slug: string; task_id: string };
+
+function applyAgentNavigateTarget(t: AgentNavigateTarget): void {
+  const state = useChatStore.getState();
+  if (t.kind === "global") {
+    state.selectGlobal(coerceGlobalNavTab(t.tab));
+  } else if (t.kind === "project") {
+    void state.selectProject(t.project_slug, coerceProjectNavTab(t.tab));
+  } else if (t.kind === "feature") {
+    void state.selectProject(t.project_slug, "features");
+    state.selectFeature(t.project_slug, t.feature_id);
+  } else if (t.kind === "task") {
+    void state.selectProject(t.project_slug, "tasks");
+    state.highlightTask(t.project_slug, t.task_id);
+  }
+}
+
 /**
  * Module-level WS subscription. Refreshes project + activity data whenever
  * the server broadcasts a `mutation_applied` event. This catches mutations
@@ -1578,33 +1615,10 @@ subscribeEvents((ev) => {
   if (ev.type === "nav_request") {
     const e = ev as {
       client_id?: string;
-      target:
-        | { kind: "global"; tab?: string }
-        | { kind: "project"; project_slug: string; tab?: string }
-        | { kind: "feature"; project_slug: string; feature_id: string }
-        | { kind: "task"; project_slug: string; task_id: string };
+      target: AgentNavigateTarget;
     };
     if (e.client_id && e.client_id !== getClientId()) return;
-    const t = e.target;
-    if (t.kind === "global") {
-      state.selectGlobal(coerceGlobalNavTab(t.tab));
-    } else if (t.kind === "project") {
-      void state.selectProject(t.project_slug, coerceProjectNavTab(t.tab));
-    } else if (t.kind === "feature") {
-      void state.selectProject(t.project_slug, "features");
-      // Pre-select the feature so Flows/Architecture views know which one
-      // to highlight. selectProject is async but selectFeature is sync —
-      // safe to call immediately; the projects fetch races, but feature
-      // selection lives in its own slice.
-      state.selectFeature(t.project_slug, t.feature_id);
-    } else if (t.kind === "task") {
-      void state.selectProject(t.project_slug, "tasks");
-      // Transient "ping" so the user's eye lands on the right card
-      // rather than the whole Kanban. Sticky-select doesn't make
-      // sense here (Tasks isn't a single-selection surface), so we
-      // auto-clear after a few seconds.
-      state.highlightTask(t.project_slug, t.task_id);
-    }
+    applyAgentNavigateTarget(e.target);
     return;
   }
 
