@@ -64,6 +64,8 @@ const PASSWORD_CHANGE_BYPASS = new Set<string>([
   "/v1/auth/me",
   "/v1/auth/logout",
   "/v1/auth/change-password",
+  /** Voice health is polled with Bearer token but must stay reachable during forced password change. */
+  "/v1/voice/health",
 ]);
 
 export function requireMutablePassword(

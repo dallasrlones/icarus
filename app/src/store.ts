@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as api from "./api";
+import { subscribeAuth } from "./auth";
 import { subscribe as subscribeEvents } from "./events";
 import { getClientId } from "./voice/client_id";
 import { getRecorder, getSpeaker, voiceClientSupported } from "./voice/controller";
@@ -1517,6 +1518,11 @@ setInterval(() => {
   if (v.userDisabled) return;
   void useChatStore.getState().refreshVoiceHealth();
 }, VOICE_HEALTH_POLL_MS);
+// `/v1/voice/health` requires auth — re-probe as soon as a JWT appears so we
+// do not stay stuck offline until the next interval after login.
+subscribeAuth((auth) => {
+  if (auth) void useChatStore.getState().refreshVoiceHealth();
+});
 // Phase 20: load the per-role model selection so the Settings tab
 // renders with the user's actual choices on first paint and the
 // composer can surface "running on X" if we add that affordance
