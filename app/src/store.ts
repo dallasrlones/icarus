@@ -635,8 +635,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!trimmed) return;
     const scope = viewScope(get().view);
     const key = scopeKey(scope);
-    const chatId = get().activeChatByScope[key];
-    if (!chatId) return;
+    let chatId = get().activeChatByScope[key];
+    if (!chatId) {
+      // Voice confirm can run before `refreshChats` finishes creating the
+      // scope's first chat (composer stays disabled until then — voice bypasses
+      // that guard). Self-heal the same way refresh does on empty scope.
+      await get().refreshChats();
+      chatId = get().activeChatByScope[key];
+    }
+    if (!chatId) {
+      await get().newChat();
+      chatId = get().activeChatByScope[key];
+    }
+    if (!chatId) {
+      set({ error: "couldn't open a chat — try again or reload" });
+      return;
+    }
     if (get().busyByChat[chatId]) return;
 
     const userMessage = tempUserMessage(trimmed);
