@@ -42,7 +42,19 @@ fi
 # native uses host paths directly).
 export WORKSPACE_ROOT="${WORKSPACE_ROOT:-${WORKSPACE_DIR:-$HOME/work}}"
 export ICARUS_DATA="${ICARUS_DATA:-$(pwd)/../store}"
-export CURSOR_DESKTOP_PATH="${CURSOR_DESKTOP_PATH:-$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb}"
+# Cursor usage pill: only pin CURSOR_DESKTOP_PATH when the file exists so the
+# server's own fallback chain can try Linux ~/.config on cross-platform machines.
+if [ -z "${CURSOR_DESKTOP_PATH:-}" ]; then
+  for _cursor_db in \
+    "$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb" \
+    "${XDG_CONFIG_HOME:-$HOME/.config}/Cursor/User/globalStorage/state.vscdb"; do
+    if [ -f "$_cursor_db" ]; then
+      export CURSOR_DESKTOP_PATH="$_cursor_db"
+      break
+    fi
+  done
+fi
+unset _cursor_db
 export PORT="${PORT:-4000}"
 
 # Cursor CLI installer drops binaries here; many shells omit ~/.local/bin → ENOENT on POST /chats.

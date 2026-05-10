@@ -206,6 +206,14 @@ them with an absolute path. A planning-only project (no
 `workspace_path`) can be promoted later from the **Code** tab's inline
 setup form, which emits `update_project { workspace_path }`.
 
+**Cursor usage pill (Docker / Linux headless):** the desktop `state.vscdb`
+can be **many gigabytes**. Don’t copy the whole file onto a Jetson or NAS —
+run [`server/scripts/export-cursor-desktop-auth-for-usage.sh`](./server/scripts/export-cursor-desktop-auth-for-usage.sh)
+to emit a **~12 KiB** SQLite file with only the auth rows icarus reads, then
+set `CURSOR_DESKTOP_HOST_DIR` to the directory that contains
+`User/globalStorage/state.vscdb` (see `.env.example`). On macOS Docker the
+default `~/Library/Application Support/Cursor` bind mount still works.
+
 ## Run without Docker
 
 ```bash

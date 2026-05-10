@@ -147,7 +147,7 @@ function UnavailableBody({ reason }: { reason: string }) {
   return (
     <>
       <Text style={styles.unavailable}>unavailable</Text>
-      <Text style={styles.dimText} numberOfLines={2}>
+      <Text style={styles.dimText} numberOfLines={4}>
         {reason}
       </Text>
       <Text style={styles.dashboardLink}>open dashboard ↗</Text>

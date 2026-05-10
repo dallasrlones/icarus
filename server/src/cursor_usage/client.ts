@@ -10,8 +10,9 @@
  * community usage extensions all hit an *undocumented* Connect-RPC
  * service at `api2.cursor.sh/aiserver.v1.DashboardService/*`,
  * authenticated with an Auth0 JWT issued to the Cursor desktop
- * app. That JWT lives in the desktop's SQLite store at
- * `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`.
+ * app. That JWT lives in the desktop SQLite store (`state.vscdb`
+ * under globalStorage — macOS Library path, Linux ~/.config/Cursor,
+ * Windows %APPDATA%\\Cursor; see `resolveStatePath`).
  *
  * This module:
  *   1. Reads `accessToken` + `refreshToken` from that SQLite file
@@ -45,24 +46,46 @@ const AUTH0_CLIENT_ID = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB";
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
- * Resolve the desktop's `state.vscdb` path. Order:
- *   1. CURSOR_DESKTOP_PATH env override (full path to a `.vscdb`).
+ * Resolve the desktop's `state.vscdb` path. Tries in order (first hit wins):
+ *   1. `CURSOR_DESKTOP_PATH` — full path when set.
  *   2. Docker bind mount at `/cursor-app/User/globalStorage/state.vscdb`.
- *   3. Native macOS path under `$HOME/Library/Application Support/Cursor`.
+ *   3. macOS: `~/Library/Application Support/Cursor/...`
+ *   4. Linux / BSD: `$XDG_CONFIG_HOME/Cursor/...` or `~/.config/Cursor/...`
+ *   5. Windows: `%APPDATA%\Cursor\User\globalStorage\state.vscdb`
  *
- * Returns `null` when none of the candidates exists; callers
- * surface the reason in the unavailable envelope.
+ * Inside Docker, `$HOME` is usually `/root`, so (3–5) only help when the
+ * desktop store is bind-mounted at `/cursor-app` or `CURSOR_DESKTOP_PATH`
+ * points at the real file.
+ *
+ * Returns `null` when none of the candidates exists; callers surface the
+ * reason in the unavailable envelope.
  */
 function resolveStatePath(): string | null {
-  const env = process.env.CURSOR_DESKTOP_PATH;
-  if (env && existsSync(env)) return env;
-  const dockerMount = "/cursor-app/User/globalStorage/state.vscdb";
-  if (existsSync(dockerMount)) return dockerMount;
-  const native = join(
-    homedir(),
-    "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+  const ordered: string[] = [];
+  const add = (p: string | undefined) => {
+    const s = p?.trim();
+    if (!s || ordered.includes(s)) return;
+    ordered.push(s);
+  };
+
+  add(process.env.CURSOR_DESKTOP_PATH);
+  add("/cursor-app/User/globalStorage/state.vscdb");
+  add(
+    join(
+      homedir(),
+      "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+    ),
   );
-  if (existsSync(native)) return native;
+  const xdgBase = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  add(join(xdgBase, "Cursor/User/globalStorage/state.vscdb"));
+  const appData = process.env.APPDATA;
+  if (appData) {
+    add(join(appData, "Cursor", "User", "globalStorage", "state.vscdb"));
+  }
+
+  for (const p of ordered) {
+    if (existsSync(p)) return p;
+  }
   return null;
 }
 
@@ -176,7 +199,7 @@ async function getAccessToken(): Promise<{ token: string; membershipType: string
   const statePath = resolveStatePath();
   if (!statePath) {
     throw new Error(
-      "Cursor desktop SQLite not found — set CURSOR_DESKTOP_PATH or bind-mount the desktop dir",
+      "Cursor desktop store not found (state.vscdb). Sign in once in the Cursor app, then set CURSOR_DESKTOP_PATH or Docker CURSOR_DESKTOP_HOST_DIR — Linux: ~/.config/Cursor; macOS: ~/Library/Application Support/Cursor; Windows: %APPDATA%\\Cursor",
     );
   }
   const tokens = readTokens(statePath);

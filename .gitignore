@@ -23,6 +23,9 @@ store/
 # is unset. Empty placeholder; users override in `.env`.
 .workspace/
 
+# Cursor JWT subset for Docker usage pill (`CURSOR_DESKTOP_HOST_DIR` mount).
+.cursor-ro-stub/
+
 # Test/playground artifacts that occasionally end up at the repo root
 # (e.g., agent-generated scaffolding from earlier experiments).
 task-app/
