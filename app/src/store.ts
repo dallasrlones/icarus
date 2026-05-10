@@ -22,6 +22,8 @@ const highlightTaskTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const refreshChatsChainByKey: Record<string, Promise<void>> = {};
 import {
   scopeKey,
+  coerceGlobalNavTab,
+  coerceProjectNavTab,
   type ActivityEntry,
   type Chat,
   type ChatScope,
@@ -433,6 +435,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     void get().refreshQuestions(slug);
     void get().refreshQueue();
     if (tab === "activity") void get().refreshActivity();
+    if (tab === "architecture" || tab === "code") void get().refreshArchitecture(slug);
+    if (tab === "rules") void get().refreshProjectRules(slug);
+    if (tab === "personas") {
+      void get().refreshProjectPersonas(slug);
+      void get().refreshGlobalPersonas();
+      void get().refreshResolvedPersonas(slug);
+    }
   },
   setProjectTab(tab) {
     const view = get().view;
@@ -1564,9 +1573,9 @@ subscribeEvents((ev) => {
     if (e.client_id && e.client_id !== getClientId()) return;
     const t = e.target;
     if (t.kind === "global") {
-      state.selectGlobal((t.tab as GlobalTab) ?? "chat");
+      state.selectGlobal(coerceGlobalNavTab(t.tab));
     } else if (t.kind === "project") {
-      void state.selectProject(t.project_slug, (t.tab as ProjectTab) ?? "chat");
+      void state.selectProject(t.project_slug, coerceProjectNavTab(t.tab));
     } else if (t.kind === "feature") {
       void state.selectProject(t.project_slug, "features");
       // Pre-select the feature so Flows/Architecture views know which one

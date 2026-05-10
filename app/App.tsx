@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Platform,
@@ -207,6 +207,19 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
   const { width: windowWidth } = useWindowDimensions();
   const [navOpen, setNavOpen] = useState(false);
   const drawerWidth = Math.min(Math.round(windowWidth * 0.88), 300);
+
+  const viewRouteKey = useMemo(
+    () =>
+      view.kind === "global"
+        ? `g:${view.tab}`
+        : `p:${view.slug}:${view.tab}`,
+    [view],
+  );
+
+  useEffect(() => {
+    if (!compact) return;
+    setNavOpen(false);
+  }, [compact, viewRouteKey]);
 
   const [newProjectVisible, setNewProjectVisible] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);

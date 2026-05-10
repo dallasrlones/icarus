@@ -335,6 +335,39 @@ export type ProjectTab =
 /** Phase 10/11/12/14/20: top-level tabs available on the global cockpit. */
 export type GlobalTab = "chat" | "tools" | "cron" | "rules" | "personas" | "settings";
 
+const GLOBAL_NAV_TAB_WHITELIST = [
+  "chat",
+  "tools",
+  "cron",
+  "rules",
+  "personas",
+  "settings",
+] as const satisfies readonly GlobalTab[];
+
+const PROJECT_NAV_TAB_WHITELIST = [
+  "chat",
+  "tasks",
+  "features",
+  "flows",
+  "architecture",
+  "code",
+  "questions",
+  "rules",
+  "personas",
+  "activity",
+] as const satisfies readonly ProjectTab[];
+
+/** Normalize agent/emitted tab ids so unknown strings fall back safely. */
+export function coerceGlobalNavTab(tab: string | undefined): GlobalTab {
+  const w = GLOBAL_NAV_TAB_WHITELIST as readonly string[];
+  return tab && w.includes(tab) ? (tab as GlobalTab) : "chat";
+}
+
+export function coerceProjectNavTab(tab: string | undefined): ProjectTab {
+  const w = PROJECT_NAV_TAB_WHITELIST as readonly string[];
+  return tab && w.includes(tab) ? (tab as ProjectTab) : "chat";
+}
+
 /** Phase 20 — per-role cursor-agent model selection. */
 export interface ModelSettings {
   /** Used by chat handlers + voice spoken-summary. */
