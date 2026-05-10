@@ -1,5 +1,9 @@
 import { WebRecorder, recorderSupported } from "./recorder";
-import { TTSPlayer, speakerSupported } from "./speaker";
+import {
+  TTSPlayer,
+  primeMobilePlaybackFromUserGesture,
+  speakerSupported,
+} from "./speaker";
 
 /**
  * Phase 15 — singleton voice runtime.
@@ -30,3 +34,5 @@ export function getSpeaker(): TTSPlayer {
 export function voiceClientSupported(): boolean {
   return recorderSupported() && speakerSupported();
 }
+
+export { primeMobilePlaybackFromUserGesture };

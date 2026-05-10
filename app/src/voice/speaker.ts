@@ -27,6 +27,50 @@ export function speakerSupported(): boolean {
   return typeof w.Audio === "function";
 }
 
+/** Reused so repeated taps don't allocate endless AudioContexts. */
+let primedAudioCtx: AudioContext | null = null;
+
+/**
+ * iOS Safari (and strict mobile WebKit) often refuses `HTMLAudioElement.play()`
+ * when it runs *after* awaits/network — even if the mic was opened from the same
+ * tap flow. Call this **synchronously** from push-to-talk / send / speak handlers
+ * (before any `await`) so output is allowed for the rest of the session.
+ */
+export function primeMobilePlaybackFromUserGesture(): void {
+  if (!speakerSupported()) return;
+  try {
+    const W = window as typeof window & { webkitAudioContext?: typeof AudioContext };
+    const AC = window.AudioContext ?? W.webkitAudioContext;
+    if (AC) {
+      if (!primedAudioCtx || primedAudioCtx.state === "closed") {
+        primedAudioCtx = new AC();
+      }
+      void primedAudioCtx.resume();
+      const buf = primedAudioCtx.createBuffer(1, 1, 22050);
+      const src = primedAudioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(primedAudioCtx.destination);
+      src.start(0);
+    }
+  } catch {
+    /* non-fatal — desktop ignores */
+  }
+
+  try {
+    // Second path: prime the same `<audio>` stack we use for TTS blobs.
+    const silent =
+      "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+    const primed = new Audio(silent);
+    primed.volume = 0.0001;
+    primed.preload = "auto";
+    primed.setAttribute("playsinline", "");
+    (primed as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
+    void primed.play().catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
 interface QueueEntry {
   text: string;
   audio: HTMLAudioElement;
@@ -69,6 +113,9 @@ async function fetchSpeechAudio(text: string): Promise<HTMLAudioElement & { _blo
   const audio = new Audio(url) as HTMLAudioElement & { _blobUrl: string };
   audio._blobUrl = url;
   audio.preload = "auto";
+  audio.volume = 1;
+  audio.setAttribute("playsinline", "");
+  (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
   return audio;
 }
 

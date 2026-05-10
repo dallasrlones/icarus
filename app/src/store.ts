@@ -3,7 +3,12 @@ import * as api from "./api";
 import { subscribeAuth } from "./auth";
 import { subscribe as subscribeEvents } from "./events";
 import { getClientId } from "./voice/client_id";
-import { getRecorder, getSpeaker, voiceClientSupported } from "./voice/controller";
+import {
+  getRecorder,
+  getSpeaker,
+  primeMobilePlaybackFromUserGesture,
+  voiceClientSupported,
+} from "./voice/controller";
 
 /**
  * Module-scoped auto-clear timers for the transient task-highlight
@@ -1145,6 +1150,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const v = get().voice;
     if (!v.available) return;
     if (v.state === "recording") return;
+    primeMobilePlaybackFromUserGesture();
     // Cancel any in-flight playback so we don't talk over the user.
     // Also clear any pending transcript — re-arming after a preview
     // is the "talk to change it" path; the new utterance replaces
@@ -1174,6 +1180,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async voiceStopAndPreview() {
     const v = get().voice;
     if (v.state !== "recording") return;
+    primeMobilePlaybackFromUserGesture();
     set((s) => ({ voice: { ...s.voice, state: "transcribing", error: null } }));
     let result: { blob: Blob; contentType: string; durationMs: number };
     try {
@@ -1245,6 +1252,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async voiceConfirmAndSend() {
     const v = get().voice;
     if (v.state !== "pending") return;
+    primeMobilePlaybackFromUserGesture();
     const transcript = (v.pendingTranscript ?? "").trim();
     if (!transcript) {
       set((s) => ({
@@ -1364,6 +1372,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       return;
     }
+    primeMobilePlaybackFromUserGesture();
     // Stop any in-flight audio / recording. New question = fresh
     // turn; we don't want yesterday's playback bleeding into this.
     getSpeaker().cancel();
