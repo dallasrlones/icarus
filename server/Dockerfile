@@ -5,6 +5,11 @@
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
+# node-gyp needs Python + toolchain to compile node-pty on linux-arm64 when no prebuild exists.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
 
