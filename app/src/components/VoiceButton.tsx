@@ -32,6 +32,7 @@ import { palette, fonts, glow, radii, space } from "../theme";
  *
  * State machine drives the colors / labels:
  *   idle         → cyan,   "TALK"
+ *   arming       → amber,  "MIC…"           (button disabled — opening mic)
  *   recording    → red,    "STOP"           (with pulsing dot)
  *   transcribing → amber,  "TRANSCRIBING…"  (button disabled)
  *   pending      → cyan,   "RE-RECORD"      (preview bubble visible)
@@ -69,19 +70,22 @@ export function VoiceButton(): ReactElement | null {
         // replaces. This is the "talk to change it" path.
         void arm();
         return;
+      case "arming":
+      case "transcribing":
+        // Busy — button disabled; ignore stray taps.
+        return;
       case "recording":
         void stopAndPreview();
         return;
       case "speaking":
         cancel();
         return;
-      // transcribing: ignore — operation in flight.
     }
   };
 
   const accent = colorForState(voice.state);
   const label = labelForState(voice.state);
-  const disabled = voice.state === "transcribing";
+  const disabled = voice.state === "transcribing" || voice.state === "arming";
 
   return (
     <View
@@ -174,11 +178,13 @@ export function VoiceButton(): ReactElement | null {
 }
 
 function colorForState(
-  state: "idle" | "recording" | "transcribing" | "pending" | "speaking",
+  state: "idle" | "arming" | "recording" | "transcribing" | "pending" | "speaking",
 ): string {
   switch (state) {
     case "recording": return palette.danger;
-    case "transcribing": return palette.amber;
+    case "transcribing":
+    case "arming":
+      return palette.amber;
     case "speaking": return palette.violet;
     // pending uses cyan (same as idle) so the user reads the bubble
     // for the actual call-to-action. Different label ("RE-RECORD")
@@ -188,9 +194,10 @@ function colorForState(
 }
 
 function labelForState(
-  state: "idle" | "recording" | "transcribing" | "pending" | "speaking",
+  state: "idle" | "arming" | "recording" | "transcribing" | "pending" | "speaking",
 ): string {
   switch (state) {
+    case "arming": return "MIC…";
     case "recording": return "STOP";
     case "transcribing": return "TRANSCRIBING…";
     case "pending": return "RE-RECORD";

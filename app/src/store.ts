@@ -133,6 +133,8 @@ interface ChatState {
    * bubble's visibility.
    *
    *   idle         — no recording, no pending transcript, no playback.
+   *   arming       — mic permission / MediaRecorder startup (compact modal
+   *                  dismissed; button shows amber "MIC…").
    *   recording    — mic open, button pulses red.
    *   transcribing — audio uploaded, waiting on STT, button shows amber spinner.
    *   pending      — STT returned; transcript shown in the preview
@@ -158,7 +160,7 @@ interface ChatState {
      */
     userDisabled: boolean;
     healthReason?: string;
-    state: "idle" | "recording" | "transcribing" | "pending" | "speaking";
+    state: "idle" | "arming" | "recording" | "transcribing" | "pending" | "speaking";
     pendingTranscript: string | null;
     error: string | null;
     lastInputWasVoice: boolean;
@@ -267,7 +269,8 @@ interface ChatState {
    */
   refreshModelSettings: () => Promise<void>;
   /**
-   * Begin push-to-talk recording. Sets `voice.state = "recording"`.
+   * Begin push-to-talk recording. Brief `arming` while the mic opens, then
+   * `recording`.
    * Clears any prior `pendingTranscript` — re-arming is the
    * "talk to change it" path: each new utterance replaces.
    */
@@ -1187,7 +1190,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async voiceArm() {
     const v = get().voice;
     if (!v.available) return;
-    if (v.state === "recording") return;
+    if (v.state === "recording" || v.state === "arming") return;
     primeMobilePlaybackFromUserGesture();
     // Cancel any in-flight playback so we don't talk over the user.
     // Also clear any pending transcript — re-arming after a preview
@@ -1195,16 +1198,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // whatever was held. (User can keep the previous text instead by
     // editing it inline + hitting send.)
     getSpeaker().cancel();
+    // Compact layout renders the preview as a full-screen Modal with a
+    // dark backdrop. `getRecorder().start()` can await getUserMedia for a
+    // noticeable stretch — if we only flipped state after it resolves, the
+    // old pending UI (and backdrop) stayed mounted and looked like the whole
+    // app dimmed when tapping TALK / RE-RECORD. Drop pending synchronously.
+    set((s) => ({
+      voice: {
+        ...s.voice,
+        pendingTranscript: null,
+        state: "arming",
+        error: null,
+      },
+    }));
     try {
       await getRecorder().start();
-      set((s) => ({
-        voice: {
-          ...s.voice,
-          state: "recording",
-          pendingTranscript: null,
-          error: null,
-        },
-      }));
+      set((s) => {
+        if (s.voice.state !== "arming") {
+          getRecorder().cancel();
+          return s;
+        }
+        return {
+          ...s,
+          voice: {
+            ...s.voice,
+            state: "recording",
+            pendingTranscript: null,
+            error: null,
+          },
+        };
+      });
     } catch (err) {
       set((s) => ({
         voice: {
