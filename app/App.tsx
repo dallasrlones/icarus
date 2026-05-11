@@ -23,6 +23,7 @@ import { CronPanel } from "./src/components/CronPanel";
 import { RulesPanel } from "./src/components/RulesPanel";
 import { PersonasPanel } from "./src/components/PersonasPanel";
 import { SettingsPanel } from "./src/components/SettingsPanel";
+import { ShellPanel } from "./src/components/ShellPanel";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { VoiceButton } from "./src/components/VoiceButton";
 import { useChatStore } from "./src/store";
@@ -55,6 +56,8 @@ function labelForGlobalTab(t: GlobalTab): string {
       return "PERSONAS";
     case "settings":
       return "SETTINGS";
+    case "shell":
+      return "SHELL";
   }
 }
 
@@ -318,7 +321,7 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
     onLogout: () => void logout(),
   };
 
-  const globalTabButtons = (["chat", "tools", "cron", "rules", "personas", "settings"] as const).map((t) => {
+  const globalTabButtons = (["chat", "tools", "cron", "rules", "personas", "shell", "settings"] as const).map((t) => {
     const active = globalTab === t;
     const pendingCount =
       t === "tools"
@@ -379,7 +382,9 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
                               ? "Rules"
                               : globalTab === "personas"
                                 ? "Personas"
-                                : "Settings"}
+                                : globalTab === "shell"
+                                  ? "Shell"
+                                  : "Settings"}
                     </Text>
                   </View>
                   {!compact ? (
@@ -433,6 +438,8 @@ function MainShell({ user, onRequestPasswordChange }: MainShellProps) {
                   scope={{ kind: "global" }}
                   onApply={(envelope) => applyAndRefresh(envelope)}
                 />
+              ) : globalTab === "shell" ? (
+                <ShellPanel scope="global" />
               ) : (
                 <SettingsPanel
                   models={models}

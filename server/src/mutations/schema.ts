@@ -769,12 +769,13 @@ const ProjectTab = z.enum([
   "flows",
   "architecture",
   "code",
+  "shell",
   "questions",
   "rules",
   "personas",
   "activity",
 ]);
-const GlobalTab = z.enum(["chat", "tools", "cron", "rules", "personas", "settings"]);
+const GlobalTab = z.enum(["chat", "tools", "cron", "rules", "personas", "settings", "shell"]);
 
 /**
  * Navigate targets. Each kind accepts either an exact id (preferred when

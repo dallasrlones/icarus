@@ -28,6 +28,7 @@ import { QuestionsTab } from "./QuestionsTab";
 import { RulesPanel } from "./RulesPanel";
 import { PersonasPanel } from "./PersonasPanel";
 import { TasksTab } from "./TasksTab";
+import { ShellPanel } from "./ShellPanel";
 import { fonts, glow, palette, radii, space } from "../theme";
 
 interface Props {
@@ -100,6 +101,7 @@ const TABS: { id: ProjectTab; label: string; phase: number }[] = [
   { id: "tasks", label: "Tasks", phase: 3 },
   { id: "architecture", label: "Architecture", phase: 8 },
   { id: "code", label: "Code", phase: 7 },
+  { id: "shell", label: "Shell", phase: 21 },
   { id: "questions", label: "Questions", phase: 5 },
   { id: "rules", label: "Rules", phase: 12 },
   { id: "personas", label: "Personas", phase: 14 },
@@ -113,6 +115,7 @@ const REAL_TABS = new Set<ProjectTab>([
   "tasks",
   "architecture",
   "code",
+  "shell",
   "questions",
   "rules",
   "personas",
@@ -280,6 +283,17 @@ export function ProjectDetail({
             slug={project.slug}
             workspacePath={project.workspace_path}
             applyMutation={applyMutation}
+          />
+        )}
+        {tab === "shell" && (
+          <ShellPanel
+            scope="project"
+            slug={project.slug}
+            cwdHint={
+              project.workspace_path && project.workspace_path.length > 0
+                ? project.workspace_path
+                : "(no workspace — attach one on the Code tab)"
+            }
           />
         )}
         {tab === "questions" && (

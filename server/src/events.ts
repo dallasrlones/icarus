@@ -1,14 +1,14 @@
-import type { Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import { authenticateUpgrade } from "./auth/ws.js";
+import { bindShellConnection } from "./shell/session.js";
 
 /**
- * Single-tenant event bus. The frontend opens a WS at `/v1/events` and we
- * push every applied mutation (and, later, queue/task lifecycle events)
- * to all connected sockets.
+ * Single-tenant WebSocket upgrade multiplexer:
+ * - `/v1/events` — mutation / queue / task fan-out bus for UI subscribers.
+ * - `/v1/shell` — JWT-auth interactive PTY (`node-pty`) for the Shell tab.
  *
- * No subscriptions / topics yet — the firehose is small enough that
- * filtering can live in the client.
+ * No topic subscriptions yet — event filtering stays client-side.
  */
 
 export type IcarusEvent =
@@ -72,6 +72,8 @@ export type EventListener = (event: IcarusEvent) => void;
 
 class EventBus {
   private wss: WebSocketServer | null = null;
+  /** JWT-auth interactive shells (`/v1/shell`). */
+  private shellWss: WebSocketServer | null = null;
   /**
    * In-process listeners. Used by API endpoints that need to wait on
    * lifecycle events without the WS round-trip (e.g. the synchronous
@@ -91,21 +93,34 @@ class EventBus {
       ws.send(JSON.stringify({ type: "ping", ts: Date.now() } satisfies IcarusEvent));
     });
 
+    this.shellWss = new WebSocketServer({ noServer: true });
+    this.shellWss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
+      const reqUrl = new URL(req.url ?? "", "http://localhost");
+      void bindShellConnection(ws, reqUrl);
+    });
+
     server.on("upgrade", (req, socket, head) => {
       const url = new URL(req.url ?? "", "http://localhost");
-      if (url.pathname !== "/v1/events") {
-        socket.destroy();
-        return;
-      }
+      const pathname = url.pathname;
       const claims = authenticateUpgrade(req);
       if (!claims) {
         socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return;
       }
-      this.wss?.handleUpgrade(req, socket, head, (ws) => {
-        this.wss?.emit("connection", ws, req);
-      });
+      if (pathname === "/v1/events") {
+        this.wss?.handleUpgrade(req, socket, head, (ws) => {
+          this.wss?.emit("connection", ws, req);
+        });
+        return;
+      }
+      if (pathname === "/v1/shell") {
+        this.shellWss?.handleUpgrade(req, socket, head, (ws) => {
+          this.shellWss?.emit("connection", ws, req);
+        });
+        return;
+      }
+      socket.destroy();
     });
   }
 

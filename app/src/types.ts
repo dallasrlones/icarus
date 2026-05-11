@@ -327,13 +327,14 @@ export type ProjectTab =
   | "flows"
   | "architecture"
   | "code"
+  | "shell"
   | "questions"
   | "rules"
   | "personas"
   | "activity";
 
 /** Phase 10/11/12/14/20: top-level tabs available on the global cockpit. */
-export type GlobalTab = "chat" | "tools" | "cron" | "rules" | "personas" | "settings";
+export type GlobalTab = "chat" | "tools" | "cron" | "rules" | "personas" | "settings" | "shell";
 
 const GLOBAL_NAV_TAB_WHITELIST = [
   "chat",
@@ -342,6 +343,7 @@ const GLOBAL_NAV_TAB_WHITELIST = [
   "rules",
   "personas",
   "settings",
+  "shell",
 ] as const satisfies readonly GlobalTab[];
 
 const PROJECT_NAV_TAB_WHITELIST = [
@@ -351,6 +353,7 @@ const PROJECT_NAV_TAB_WHITELIST = [
   "flows",
   "architecture",
   "code",
+  "shell",
   "questions",
   "rules",
   "personas",
